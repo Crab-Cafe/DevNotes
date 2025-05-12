@@ -3,6 +3,7 @@
 #include "DevNotes.h"
 #include "DevNotesStyle.h"
 #include "DevNotesCommands.h"
+#include "DevNoteSubsystem.h"
 #include "Misc/MessageDialog.h"
 #include "ToolMenus.h"
 
@@ -45,13 +46,11 @@ void FDevNotesModule::ShutdownModule()
 
 void FDevNotesModule::PluginButtonClicked()
 {
-	// Put your "OnButtonClicked" stuff here
-	FText DialogText = FText::Format(
-							LOCTEXT("PluginButtonDialogText", "Add code to {0} in {1} to override this button's actions"),
-							FText::FromString(TEXT("FDevNotesModule::PluginButtonClicked()")),
-							FText::FromString(TEXT("DevNotes.cpp"))
-					   );
-	FMessageDialog::Open(EAppMsgType::Ok, DialogText);
+	auto ss = GEngine->GetEngineSubsystem<UDevNoteSubsystem>();
+	FDevNote note;
+	note.Title = "HEHE";
+	note.Id = "000.000.0";
+	ss->PushNote(note);
 }
 
 void FDevNotesModule::RegisterMenus()
