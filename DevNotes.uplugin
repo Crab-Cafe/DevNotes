@@ -1,0 +1,23 @@
+﻿{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "DevNotes",
+	"Description": "A collaborative notes system for Unreal Engine",
+	"Category": "Other",
+	"CreatedBy": "Crab Cafe",
+	"CreatedByURL": "",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"CanContainContent": false,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "DevNotes",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	]
+}
