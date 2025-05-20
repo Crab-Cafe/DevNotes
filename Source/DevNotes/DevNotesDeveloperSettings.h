@@ -15,6 +15,9 @@ class DEVNOTES_API UDevNotesDeveloperSettings : public UDeveloperSettings
 	GENERATED_BODY()
 
 public:
+	UPROPERTY(Config, EditDefaultsOnly)
+	FString ServerAddress;
+	
 	UPROPERTY(Config, EditDefaultsOnly, meta=(RequiredAssetDataTags = "RowStructure=/Script/DevNotes.DevNoteUser"))
 	TSoftObjectPtr<UDataTable> UsersDatatable;
 

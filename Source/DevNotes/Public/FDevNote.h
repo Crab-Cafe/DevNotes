@@ -1,28 +1,30 @@
 #pragma once
 
-#include "FDevNoteTag.h"
 #include "FDevNote.generated.h"
 
-USTRUCT()
-struct DEVNOTES_API FDevNote
+USTRUCT(BlueprintType)
+struct FDevNote
 {
 	GENERATED_BODY()
 
-	UPROPERTY(VisibleAnywhere)
-	FName Id;
-
-	UPROPERTY(VisibleAnywhere, meta=(RowType="/Script/DevNotes.DevNoteUser"))
-	FDataTableRowHandle CreatedBy;
-
-	UPROPERTY(VisibleAnywhere)
+	UPROPERTY()
+	FGuid Id;
+	
+	UPROPERTY()
 	FString Title;
 
-	UPROPERTY(VisibleAnywhere)
+	UPROPERTY()
 	FString Body;
 
-	UPROPERTY(VisibleAnywhere, meta=(RowType="/Script/DevNotes.DevNoteTag"))
-	TArray<FDataTableRowHandle> Tags;
+	UPROPERTY()
+	FGuid CreatedById;
 
-	UPROPERTY(VisibleAnywhere)
-	TMap<FName, FString> Metadata;
+	UPROPERTY()
+	FDateTime CreatedAt;
+	
+	UPROPERTY()
+	FString LevelPath;
+	
+	UPROPERTY()
+	FVector WorldPosition;
 };

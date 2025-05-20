@@ -25,7 +25,7 @@ public class DevNotes : ModuleRules
 		PublicDependencyModuleNames.AddRange(
 			new string[]
 			{
-				"Core",
+				"Core", "HTTP",
 				// ... add other public dependencies that you statically link with here ...
 			}
 			);
@@ -46,7 +46,7 @@ public class DevNotes : ModuleRules
 				"HTTP",
 				"DeveloperSettings",
 				"Json",
-				"JsonUtilities"
+				"JsonUtilities", "EditorScriptingUtilities"
 				// ... add private dependencies that you statically link with here ...	
 			}
 			);
