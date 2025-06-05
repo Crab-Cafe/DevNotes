@@ -8,9 +8,13 @@
 ADevNoteActor::ADevNoteActor()
 {
 	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
-	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.bCanEverTick = false;
 
+#if WITH_EDITORONLY_DATA
 	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("RootComponent"));
+	AActor::SetActorHiddenInGame(true);
+	bIsEditorOnlyActor = true;
+#endif
 }
 
 // Called when the game starts or when spawned

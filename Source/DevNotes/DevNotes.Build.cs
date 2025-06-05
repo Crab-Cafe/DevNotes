@@ -7,7 +7,6 @@ public class DevNotes : ModuleRules
 	public DevNotes(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
-		
 		PublicIncludePaths.AddRange(
 			new string[] {
 				// ... add public include paths required here ...
@@ -46,7 +45,10 @@ public class DevNotes : ModuleRules
 				"HTTP",
 				"DeveloperSettings",
 				"Json",
-				"JsonUtilities", "EditorScriptingUtilities"
+				"JsonUtilities", 
+				"EditorScriptingUtilities", 
+				"EditorSubsystem"
+
 				// ... add private dependencies that you statically link with here ...	
 			}
 			);
@@ -58,5 +60,7 @@ public class DevNotes : ModuleRules
 				// ... add any modules that your module loads dynamically here ...
 			}
 			);
+		
+		
 	}
 }

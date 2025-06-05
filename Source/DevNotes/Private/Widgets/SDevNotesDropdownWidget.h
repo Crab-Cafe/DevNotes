@@ -5,6 +5,9 @@
 #include "FDevNote.h"
 
 
+class SDevNoteSelector;
+class SDevNoteEditor;
+
 class SDevNotesDropdownWidget : public SCompoundWidget
 {
 public:
@@ -15,16 +18,17 @@ public:
 	void SetNotesSource(const TArray<FDevNote>& InNotes);
 	void OnNotesUpdated();
 	void Construct(const FArguments& InArgs);
-	FReply RefreshNotes();
+	void RefreshNotes();
 private:
-	FReply NewNote();
+	void NewNote();
 
-	TArray<TSharedPtr<FDevNote>> Notes;
 	TSharedPtr<FDevNote> SelectedNote;
+	TArray<TSharedPtr<FDevNote>> NotesSource;
 
-	TSharedPtr<SListView<TSharedPtr<FDevNote>>> NotesListView;
 
-	TSharedRef<ITableRow> OnGenerateNoteRow(TSharedPtr<FDevNote> InNote, const TSharedRef<STableViewBase>& OwnerTable);
-	void OnNoteSelected(TSharedPtr<FDevNote> InNote, ESelectInfo::Type SelectInfo);
+	TSharedPtr<SDevNoteEditor> Editor;
+	TSharedPtr<SDevNoteSelector> Selector;
+
+	void OnNoteSelected(TSharedPtr<FDevNote> InNote);
 };
 

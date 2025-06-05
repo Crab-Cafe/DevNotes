@@ -4,6 +4,7 @@
 #include "DevNoteSubsystem.h"
 
 #include "DevNotesLog.h"
+#include "EngineUtils.h"
 #include "HttpModule.h"
 #include "JsonObjectConverter.h"
 #include "DevNotes/DevNotesDeveloperSettings.h"
@@ -31,6 +32,7 @@ FString GetCurrentLevelPath()
 	return FString();
 }
 
+
 FVector GetEditorViewportCameraLocation()
 {
 #if WITH_EDITOR
@@ -48,6 +50,9 @@ FVector GetEditorViewportCameraLocation()
 }
 
 
+void UDevNoteSubsystem::Tick(float DeltaTime)
+{
+}
 
 void UDevNoteSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
@@ -97,6 +102,23 @@ void UDevNoteSubsystem::PostNote(const FDevNote& Note)
 	});
 
 	Request->ProcessRequest();
+}
+
+TSet<FString> UDevNoteSubsystem::GetLoadedLevelPaths()
+{
+	UWorld* World = GEditor->GetEditorWorldContext().World();
+	if (!World) return {};
+
+	TSet<FString> LoadedLevelPaths;
+	for (ULevel* Level : World->GetLevels())
+	{
+		if (!Level || !Level->GetOutermost()) continue;
+
+		FString Path = Level->GetOutermost()->GetName();
+		LoadedLevelPaths.Add(Path);
+	}
+
+	return LoadedLevelPaths;
 }
 
 bool UDevNoteSubsystem::ParseNoteFromJsonObject(const TSharedPtr<FJsonObject>& JsonObj, FDevNote& OutNote)
@@ -217,54 +239,64 @@ void UDevNoteSubsystem::HandleNotesResponse(FHttpRequestPtr Request, FHttpRespon
 	const FString ResponseString = Response->GetContentAsString();
 
 	ParseNotesFromJson(ResponseString);
-
-	/*
-	TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(ResponseString);
-
-	if (!FJsonSerializer::Deserialize(Reader, JsonArray) || JsonArray.Num() == 0)
-	{
-		UE_LOG(LogTemp, Error, TEXT("Invalid JSON returned"));
-		return;
-	}
-
-	CachedNotes.Empty();
-	for (TSharedPtr<FJsonValue> Value : JsonArray)
-	{
-		FDevNote Note;
-
-		FString OutputString;
-		TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);
-		FJsonSerializer::Serialize(JsonArray, Writer);
-		UE_LOG(LogTemp, Warning, TEXT("Incoming JSON: %s"), *OutputString);
-		
-		if (!Value->AsObject().IsValid())
-		{
-			UE_LOG(LogTemp, Error, TEXT("Invalid JSON object in array."));
-			continue;
-		}
-
-		if (FJsonObjectConverter::JsonObjectToUStruct(
-			Value->AsObject().ToSharedRef(),
-			FDevNote::StaticStruct(),
-			&Note,
-			0, 0))
-		{
-			CachedNotes.Add(Note);
-		}
-		else
-		{
-			UE_LOG(LogTemp, Error, TEXT("Failed to convert JSON to FDevNote"));
-		}
-	}
-	*/
-
-
 	OnNotesUpdated.Broadcast();
-
+	RefreshWaypointActors();
 }
 
 FString UDevNoteSubsystem::GetServerAddress() const
 {
 	const UDevNotesDeveloperSettings* Settings = GetDefault<UDevNotesDeveloperSettings>();
 	return Settings && !Settings->ServerAddress.IsEmpty() ? Settings->ServerAddress : TEXT("http://localhost:5281");
+}
+
+
+inline void UDevNoteSubsystem::SpawnWaypointForNote(const FDevNote& Note)
+{
+	if (!GEditor) return;
+
+	UWorld* World = GEditor->GetEditorWorldContext().World();
+	if (!World) return;
+
+	auto settings = GetDefault<UDevNotesDeveloperSettings>();
+	auto spawnClass = settings->DevNoteActorRepresentation.LoadSynchronous();
+	
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.Name = MakeUniqueObjectName(World, spawnClass, FName(*FString::Printf(TEXT("DevNote_%s"), *Note.Id.ToString())));
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	// Don't save or dirty the world state
+	SpawnParams.ObjectFlags |= RF_Transient;
+	
+
+	AActor* Waypoint = World->SpawnActor(spawnClass, &Note.WorldPosition, &FRotator::ZeroRotator, SpawnParams);
+	if (Waypoint)
+	{
+		//Waypoint->NoteId = FGuid(Note.Id);
+		Waypoint->SetActorLabel(TEXT("DevNote Waypoint"), false);
+		Waypoint->SetIsTemporarilyHiddenInEditor(false);
+	}
+}
+
+void UDevNoteSubsystem::ClearAllNoteWaypoints()
+{
+	if (!GEditor) return;
+
+	UWorld* World = GEditor->GetEditorWorldContext().World();
+	if (!World) return;
+
+	for (TActorIterator<ADevNoteActor> It(World); It; ++It)
+	{
+		It->Destroy();
+	}
+}
+
+void UDevNoteSubsystem::RefreshWaypointActors()
+{
+	ClearAllNoteWaypoints();
+	
+	auto CurrentLevels = GetLoadedLevelPaths();
+	for (const FDevNote& Note : CachedNotes)
+	{
+		if (!CurrentLevels.Contains(Note.LevelPath)) continue;
+		SpawnWaypointForNote(Note);
+	}
 }

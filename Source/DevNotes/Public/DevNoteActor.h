@@ -7,9 +7,10 @@
 #include "GameFramework/Actor.h"
 #include "DevNoteActor.generated.h"
 
-UCLASS(Transient, DisplayName="Dev Note")
+UCLASS(Transient, DisplayName="Dev Note", NotPlaceable)
 class DEVNOTES_API ADevNoteActor : public AActor
 {
+	friend class UDevNoteSubsystem;
 	GENERATED_BODY()
 
 public:
@@ -21,8 +22,8 @@ protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
 
-	UPROPERTY(EditAnywhere)
-	FDevNote AssociatedNote;
+	UPROPERTY(VisibleAnywhere, Category = "DevNote")
+	FGuid NoteId;
 
 public:
 	// Called every frame

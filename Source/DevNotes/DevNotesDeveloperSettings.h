@@ -3,13 +3,14 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "DevNoteActor.h"
 #include "Engine/DeveloperSettings.h"
 #include "DevNotesDeveloperSettings.generated.h"
 
 /**
  * 
  */
-UCLASS(Config="DevNotes")
+UCLASS(Config="DevNotes", DefaultConfig)
 class DEVNOTES_API UDevNotesDeveloperSettings : public UDeveloperSettings
 {
 	GENERATED_BODY()
@@ -17,10 +18,7 @@ class DEVNOTES_API UDevNotesDeveloperSettings : public UDeveloperSettings
 public:
 	UPROPERTY(Config, EditDefaultsOnly)
 	FString ServerAddress;
-	
-	UPROPERTY(Config, EditDefaultsOnly, meta=(RequiredAssetDataTags = "RowStructure=/Script/DevNotes.DevNoteUser"))
-	TSoftObjectPtr<UDataTable> UsersDatatable;
 
-	UPROPERTY(Config, EditDefaultsOnly, meta=(RequiredAssetDataTags = "RowStructure=/Script/DevNotes.DevNoteTag"))
-	TSoftObjectPtr<UDataTable> TagsDatatable;
+	UPROPERTY(Config, EditDefaultsOnly)
+	TSoftClassPtr<ADevNoteActor> DevNoteActorRepresentation;
 };

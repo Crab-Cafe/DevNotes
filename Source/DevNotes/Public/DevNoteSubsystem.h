@@ -15,11 +15,16 @@
 DECLARE_MULTICAST_DELEGATE(FOnNotesUpdated);
 
 UCLASS()
-class DEVNOTES_API UDevNoteSubsystem : public UEngineSubsystem
+class DEVNOTES_API UDevNoteSubsystem : public UEditorSubsystem, public FTickableEditorObject
 {
 	GENERATED_BODY()
 
 public:
+	// TickableEditorObject interface
+	virtual void Tick(float DeltaTime) override;
+	virtual bool IsTickable() const override { return true; }
+	virtual TStatId GetStatId() const override { RETURN_QUICK_DECLARE_CYCLE_STAT(UDevNoteSubsystem, STATGROUP_Tickables); }
+	
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 
 	void RequestNotesFromServer();
@@ -28,12 +33,18 @@ public:
 	UFUNCTION(BlueprintCallable, Category="DevNotes")
 	void PostNote(const FDevNote& Note);
 
+	void SpawnWaypointForNote(const FDevNote& Note);
+	void ClearAllNoteWaypoints();
+	void RefreshWaypointActors();
+
 	FOnNotesUpdated OnNotesUpdated;
+
+	TSet<FString> GetLoadedLevelPaths();
 
 	static bool ParseNoteFromJsonObject(const TSharedPtr<FJsonObject>& JsonObj, FDevNote& OutNote);
 	static TSharedPtr<FJsonObject> ConvertNoteToJsonObject(const FDevNote& Note);
 	static FString SerializeNoteToJsonString(const FDevNote& Note);
-
+	
 	void CreateNewNoteAtEditorLocation();
 private:
 	UPROPERTY()
@@ -44,3 +55,4 @@ private:
 	
 	FString GetServerAddress() const;
 };
+

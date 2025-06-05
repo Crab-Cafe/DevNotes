@@ -60,7 +60,7 @@ void FDevNotesModule::ShutdownModule()
 
 TSharedRef<SWidget> FDevNotesModule::GenerateNotesDropdown()
 {
-	UDevNoteSubsystem* Subsystem = GEngine->GetEngineSubsystem<UDevNoteSubsystem>();
+	UDevNoteSubsystem* Subsystem = GEditor->GetEditorSubsystem<UDevNoteSubsystem>();
 	Subsystem->RequestNotesFromServer();
 	const auto& notes = Subsystem->GetNotes();
 	TSharedRef<SDevNotesDropdownWidget> Widget = SNew(SDevNotesDropdownWidget);
