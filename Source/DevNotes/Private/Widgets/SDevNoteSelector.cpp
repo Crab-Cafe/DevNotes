@@ -43,12 +43,12 @@ void SDevNoteSelector::Construct(const FArguments& InArgs)
     ];
 }
 
-void SDevNoteSelector::SetNotesSource(const TArray<FDevNote>& InNotes)
+void SDevNoteSelector::SetNotesSource(const TArray<TSharedPtr<FDevNote>>& InNotes)
 {
     Notes.Empty();
-    for (const FDevNote& Note : InNotes)
+    for (auto& Note : InNotes)
     {
-        Notes.Add(MakeShared<FDevNote>(Note));
+        Notes.Add(Note);
     }
 
     if (NotesListView.IsValid())

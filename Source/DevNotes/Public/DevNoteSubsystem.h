@@ -28,12 +28,17 @@ public:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 
 	void RequestNotesFromServer();
-	const TArray<FDevNote>& GetNotes() const { return CachedNotes; }
+	
+	const TArray<TSharedPtr<FDevNote>>& GetNotes() const { return CachedNotes; }
 	
 	UFUNCTION(BlueprintCallable, Category="DevNotes")
 	void PostNote(const FDevNote& Note);
+	void UpdateNote(const FDevNote& Note);
+	void DeleteNote(const FGuid& NoteId);
 
-	void SpawnWaypointForNote(const FDevNote& Note);
+	void PromptAndTeleportToNote(const FDevNote& note);
+	
+	void SpawnWaypointForNote(TSharedPtr<FDevNote> Note);
 	void ClearAllNoteWaypoints();
 	void RefreshWaypointActors();
 
@@ -47,8 +52,7 @@ public:
 	
 	void CreateNewNoteAtEditorLocation();
 private:
-	UPROPERTY()
-	TArray<FDevNote> CachedNotes;
+	TArray<TSharedPtr<FDevNote>> CachedNotes;
 	
 	void ParseNotesFromJson(const FString& JsonString);
 	void HandleNotesResponse(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful);

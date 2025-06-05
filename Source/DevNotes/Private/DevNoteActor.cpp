@@ -2,6 +2,7 @@
 
 
 #include "DevNoteActor.h"
+#include "DevNoteSubsystem.h"
 
 
 // Sets default values
@@ -14,19 +15,57 @@ ADevNoteActor::ADevNoteActor()
 	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("RootComponent"));
 	AActor::SetActorHiddenInGame(true);
 	bIsEditorOnlyActor = true;
+	SetActorEnableCollision(false);
 #endif
 }
 
-// Called when the game starts or when spawned
-void ADevNoteActor::BeginPlay()
+
+
+void ADevNoteActor::PostEditChangeProperty(struct FPropertyChangedEvent& PropertyChangedEvent)
 {
-	Super::BeginPlay();
+	Super::PostEditChangeProperty(PropertyChangedEvent);
 	
+	if (IsCDO()) return;
+	
+	if (UDevNoteSubsystem* Subsystem = GEditor->GetEditorSubsystem<UDevNoteSubsystem>())
+	{
+		Note->WorldPosition = GetActorLocation();
+		Subsystem->UpdateNote(*Note);
+	}
 }
 
-// Called every frame
-void ADevNoteActor::Tick(float DeltaTime)
+void ADevNoteActor::PostEditMove(bool bFinished)
 {
-	Super::Tick(DeltaTime);
+	Super::PostEditMove(bFinished);
+	if (IsCDO()) return;
+	
+	if (bFinished)
+	{
+		if (UDevNoteSubsystem* Subsystem = GEditor->GetEditorSubsystem<UDevNoteSubsystem>())
+		{
+			Note->WorldPosition = GetActorLocation();
+			Subsystem->UpdateNote(*Note);
+		}
+	}
 }
+
+bool ADevNoteActor::IsCDO()
+{
+	// Is CDO?
+	if (HasAnyFlags(RF_ClassDefaultObject))
+	{
+		return true;
+	}
+
+	// Is in an editor?
+	UWorld* World = GetWorld();
+	const bool bIsGameWorld = (World && !(World->WorldType == EWorldType::Editor || World->WorldType == EWorldType::EditorPreview));
+	if (!World || !bIsGameWorld)
+	{
+		return true;
+	}
+
+	return false;
+}
+
 

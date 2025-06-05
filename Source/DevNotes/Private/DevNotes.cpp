@@ -1,28 +1,44 @@
 ﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "DevNotes.h"
+
+#include "DevNoteActor.h"
 #include "DevNotesStyle.h"
 #include "DevNotesCommands.h"
 #include "DevNoteSubsystem.h"
 #include "LevelEditor.h"
 #include "Misc/MessageDialog.h"
 #include "ToolMenus.h"
+#include "EditorCustomization/DevNoteActorCustomization.h"
 #include "Widgets/SDevNotesDropdownWidget.h"
+#include "DevNoteSubsystem.h"
 
 static const FName DevNotesTabName("DevNotes");
 
 #define LOCTEXT_NAMESPACE "FDevNotesModule"
 
+void FDevNotesModule::OnMapOpened(const FString& String, bool bArg)
+{
+	if (UDevNoteSubsystem* Subsystem = GEditor->GetEditorSubsystem<UDevNoteSubsystem>())
+	{
+		Subsystem->RequestNotesFromServer();
+	}
+}
+
 void FDevNotesModule::StartupModule()
 {
-	// This code will execute after your module is loaded into memory; the exact timing is specified in the .uplugin file per-module
-	
 	FDevNotesStyle::Initialize();
 	FDevNotesStyle::ReloadTextures();
 
-	// Register a function to be called when menu system is initialized
 	UToolMenus::RegisterStartupCallback(FSimpleMulticastDelegate::FDelegate::CreateRaw(
 		this, &FDevNotesModule::RegisterMenus));
+
+	FPropertyEditorModule& PropertyModule = FModuleManager::LoadModuleChecked<FPropertyEditorModule>("PropertyEditor");
+	PropertyModule.RegisterCustomClassLayout(
+		ADevNoteActor::StaticClass()->GetFName(),
+		FOnGetDetailCustomizationInstance::CreateStatic(&FDevNoteActorCustomization::MakeInstance));
+
+	FEditorDelegates::OnMapOpened.AddRaw(this, &FDevNotesModule::OnMapOpened);
 }
 
 
@@ -48,14 +64,13 @@ void FDevNotesModule::RegisterMenus()
 
 void FDevNotesModule::ShutdownModule()
 {
-	// This function may be called during shutdown to clean up your module.  For modules that support dynamic reloading,
-	// we call this function before unloading the module.
-
 	UToolMenus::UnRegisterStartupCallback(this);
 	UToolMenus::UnregisterOwner(this);
 
 	FDevNotesStyle::Shutdown();
 	FDevNotesCommands::Unregister();
+
+	FEditorDelegates::OnMapOpened.RemoveAll(this);
 }
 
 TSharedRef<SWidget> FDevNotesModule::GenerateNotesDropdown()

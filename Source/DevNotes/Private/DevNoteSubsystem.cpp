@@ -5,8 +5,11 @@
 
 #include "DevNotesLog.h"
 #include "EngineUtils.h"
+#include "FileHelpers.h"
 #include "HttpModule.h"
 #include "JsonObjectConverter.h"
+#include "LevelEditorSubsystem.h"
+#include "LevelEditorViewport.h"
 #include "DevNotes/DevNotesDeveloperSettings.h"
 #include "Interfaces/IHttpRequest.h"
 #include "Interfaces/IHttpResponse.h"
@@ -104,6 +107,124 @@ void UDevNoteSubsystem::PostNote(const FDevNote& Note)
 	Request->ProcessRequest();
 }
 
+void UDevNoteSubsystem::UpdateNote(const FDevNote& Note)
+{
+	FString JsonString = SerializeNoteToJsonString(Note);
+
+	TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
+	Request->SetURL(GetServerAddress() + "/notes/" + Note.Id.ToString(EGuidFormats::DigitsWithHyphens));
+	Request->SetVerb("PUT");
+	Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
+	Request->SetContentAsString(JsonString);
+
+	Request->OnProcessRequestComplete().BindLambda([](FHttpRequestPtr Req, FHttpResponsePtr Response, bool bSuccess)
+	{
+		if (bSuccess && Response->GetResponseCode() == 201)
+		{
+			UE_LOG(LogDevNotes, Log, TEXT("Note updated successfully."));
+		}
+		else
+		{
+			if (Response)
+			{
+				UE_LOG(LogDevNotes, Error, TEXT("Failed to post note: %s"), *Response->GetContentAsString());
+			}
+			else
+			{
+				UE_LOG(LogDevNotes, Error, TEXT("Could not get a response from server: %s"), *Req->GetURL());
+			}
+		}
+	});
+
+	Request->ProcessRequest();
+}
+
+void UDevNoteSubsystem::DeleteNote(const FGuid& NoteId)
+{
+	TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
+	Request->SetURL(GetServerAddress() + "/notes/" + NoteId.ToString(EGuidFormats::DigitsWithHyphens));
+	Request->SetVerb("DELETE");
+	Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
+
+	Request->OnProcessRequestComplete().BindLambda([](FHttpRequestPtr Req, FHttpResponsePtr Response, bool bSuccess)
+	{
+		if (bSuccess && Response->GetResponseCode() == 201)
+		{
+			UE_LOG(LogDevNotes, Log, TEXT("Note deleted successfully."));
+		}
+		else
+		{
+			if (Response)
+			{
+				UE_LOG(LogDevNotes, Error, TEXT("Failed to delete note: %s"), *Response->GetContentAsString());
+			}
+			else
+			{
+				UE_LOG(LogDevNotes, Error, TEXT("Could not get a response from server: %s"), *Req->GetURL());
+			}
+		}
+	});
+
+	Request->ProcessRequest();
+}
+
+void UDevNoteSubsystem::PromptAndTeleportToNote(const FDevNote& note)
+{
+	auto TargetLevelPath = note.LevelPath.GetLongPackageName();
+	bool success = true;
+	if (TargetLevelPath != GetCurrentLevelPath())
+	{
+		bool validLevelPath = !TargetLevelPath.IsEmpty() && !TargetLevelPath.StartsWith("/Temp/");
+		if (!validLevelPath)
+		{
+				success = false;
+		}
+		else
+		{
+			
+			EAppReturnType::Type Choice = FMessageDialog::Open(
+			EAppMsgType::YesNoCancel,
+			FText::FromString(TEXT("Teleporting to another level: " + TargetLevelPath + "\nSave current level before continuing?"))
+			);
+
+			switch (Choice)
+			{
+			case EAppReturnType::Yes:
+				{
+					UEditorLoadingAndSavingUtils::SaveDirtyPackages(true, false);
+				}
+				// falls through intentionally
+			case EAppReturnType::No:
+				{
+					// Open the target level
+					ULevelEditorSubsystem* levelEditorSS = GEditor->GetEditorSubsystem<ULevelEditorSubsystem>();
+					success = levelEditorSS->LoadLevel(TargetLevelPath);
+					break;
+				}
+			case EAppReturnType::Cancel:
+				return;
+			default:
+				break;
+			}
+		}
+	}
+
+	if (!success)
+	{
+		FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(TEXT("Failed to open level: ") + TargetLevelPath));
+		return;
+	}
+	
+	for (FLevelEditorViewportClient* ViewportClient : GEditor->GetLevelViewportClients())
+	{
+		if (ViewportClient && ViewportClient->IsPerspective())
+		{
+			ViewportClient->SetViewLocation(note.WorldPosition);
+			ViewportClient->Invalidate();
+		}
+	}
+}
+
 TSet<FString> UDevNoteSubsystem::GetLoadedLevelPaths()
 {
 	UWorld* World = GEditor->GetEditorWorldContext().World();
@@ -150,7 +271,9 @@ bool UDevNoteSubsystem::ParseNoteFromJsonObject(const TSharedPtr<FJsonObject>& J
 	JsonObj->TryGetNumberField(TEXT("worldZ"), Z);
 	OutNote.WorldPosition = FVector(X, Y, Z);
 
-	JsonObj->TryGetStringField(TEXT("levelPath"), OutNote.LevelPath);
+	FString outPath;
+	JsonObj->TryGetStringField(TEXT("levelPath"), outPath);
+	OutNote.LevelPath = FSoftObjectPath(outPath);
 
 	FString dateTimeString;
 	JsonObj->TryGetStringField(TEXT("createdAt"), dateTimeString);
@@ -172,7 +295,7 @@ TSharedPtr<FJsonObject> UDevNoteSubsystem::ConvertNoteToJsonObject(const FDevNot
 	JsonObject->SetNumberField(TEXT("worldY"), Note.WorldPosition.Y);
 	JsonObject->SetNumberField(TEXT("worldZ"), Note.WorldPosition.Z);
 
-	JsonObject->SetStringField(TEXT("levelPath"), Note.LevelPath);
+	JsonObject->SetStringField(TEXT("levelPath"), Note.LevelPath.ToString());
 	JsonObject->SetStringField(TEXT("createdAt"), Note.CreatedAt.ToIso8601());
 
 	return JsonObject;
@@ -189,15 +312,15 @@ FString UDevNoteSubsystem::SerializeNoteToJsonString(const FDevNote& Note)
 
 void UDevNoteSubsystem::CreateNewNoteAtEditorLocation()
 {
-	FDevNote newNote;
-	newNote.Title = "New Note";
-	newNote.CreatedAt = FDateTime::UtcNow();
-	newNote.Id = FGuid::NewGuid();
-	newNote.LevelPath = GetCurrentLevelPath();
-	newNote.WorldPosition = GetEditorViewportCameraLocation();
+	TSharedPtr<FDevNote> newNote = MakeShared<FDevNote>();
+	newNote->Title = "New Note";
+	newNote->CreatedAt = FDateTime::UtcNow();
+	newNote->Id = FGuid::NewGuid();
+	newNote->LevelPath = GetCurrentLevelPath();
+	newNote->WorldPosition = GetEditorViewportCameraLocation();
 
 	CachedNotes.Add(newNote);
-	PostNote(newNote);
+	PostNote(*newNote);
 }
 
 void UDevNoteSubsystem::ParseNotesFromJson(const FString& JsonString)
@@ -213,9 +336,9 @@ void UDevNoteSubsystem::ParseNotesFromJson(const FString& JsonString)
 		{
 			TSharedPtr<FJsonObject> JsonObj = Value->AsObject();
 
-			FDevNote Note;
+			TSharedPtr<FDevNote> Note = MakeShared<FDevNote>();
 			
-			if (ParseNoteFromJsonObject(JsonObj, Note))
+			if (ParseNoteFromJsonObject(JsonObj, *Note))
 			{
 				CachedNotes.Add(Note);
 			}
@@ -250,7 +373,7 @@ FString UDevNoteSubsystem::GetServerAddress() const
 }
 
 
-inline void UDevNoteSubsystem::SpawnWaypointForNote(const FDevNote& Note)
+inline void UDevNoteSubsystem::SpawnWaypointForNote(TSharedPtr<FDevNote> Note)
 {
 	if (!GEditor) return;
 
@@ -261,17 +384,17 @@ inline void UDevNoteSubsystem::SpawnWaypointForNote(const FDevNote& Note)
 	auto spawnClass = settings->DevNoteActorRepresentation.LoadSynchronous();
 	
 	FActorSpawnParameters SpawnParams;
-	SpawnParams.Name = MakeUniqueObjectName(World, spawnClass, FName(*FString::Printf(TEXT("DevNote_%s"), *Note.Id.ToString())));
+	SpawnParams.Name = MakeUniqueObjectName(World, spawnClass, FName(*FString::Printf(TEXT("DevNote_%s"), *Note->Id.ToString())));
 	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 	// Don't save or dirty the world state
 	SpawnParams.ObjectFlags |= RF_Transient;
 	
 
-	AActor* Waypoint = World->SpawnActor(spawnClass, &Note.WorldPosition, &FRotator::ZeroRotator, SpawnParams);
+	ADevNoteActor* Waypoint = Cast<ADevNoteActor>(World->SpawnActor(spawnClass, &Note->WorldPosition, &FRotator::ZeroRotator, SpawnParams));
 	if (Waypoint)
 	{
-		//Waypoint->NoteId = FGuid(Note.Id);
-		Waypoint->SetActorLabel(TEXT("DevNote Waypoint"), false);
+		Waypoint->Note = Note;
+		Waypoint->SetActorLabel(TEXT("DevNote ") + Note->Title, false);
 		Waypoint->SetIsTemporarilyHiddenInEditor(false);
 	}
 }
@@ -294,9 +417,10 @@ void UDevNoteSubsystem::RefreshWaypointActors()
 	ClearAllNoteWaypoints();
 	
 	auto CurrentLevels = GetLoadedLevelPaths();
-	for (const FDevNote& Note : CachedNotes)
+	for (auto Note : CachedNotes)
 	{
-		if (!CurrentLevels.Contains(Note.LevelPath)) continue;
+		auto levelString = Note->LevelPath.GetLongPackageName();
+		if (!CurrentLevels.Contains(levelString)) continue;
 		SpawnWaypointForNote(Note);
 	}
 }

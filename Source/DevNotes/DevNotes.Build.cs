@@ -47,7 +47,9 @@ public class DevNotes : ModuleRules
 				"Json",
 				"JsonUtilities", 
 				"EditorScriptingUtilities", 
-				"EditorSubsystem"
+				"EditorSubsystem",
+				"PropertyEditor",
+				"LevelEditor"
 
 				// ... add private dependencies that you statically link with here ...	
 			}

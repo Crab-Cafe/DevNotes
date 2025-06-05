@@ -23,7 +23,7 @@ struct FDevNote
 	FDateTime CreatedAt;
 	
 	UPROPERTY()
-	FString LevelPath;
+	TSoftObjectPtr<UWorld> LevelPath;
 	
 	UPROPERTY()
 	FVector WorldPosition;

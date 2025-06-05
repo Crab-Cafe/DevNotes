@@ -11,7 +11,7 @@ class FMenuBuilder;
 class FDevNotesModule : public IModuleInterface
 {
 public:
-	
+	void OnMapOpened(const FString& String, bool bArg);
 	/** IModuleInterface implementation */
 	virtual void StartupModule() override;
 	virtual void ShutdownModule() override;

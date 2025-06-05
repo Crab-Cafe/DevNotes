@@ -15,7 +15,7 @@ public:
 	SLATE_END_ARGS()
 
 	
-	void SetNotesSource(const TArray<FDevNote>& InNotes);
+	void SetNotesSource(const TArray<TSharedPtr<FDevNote>>& InNotes);
 	void OnNotesUpdated();
 	void Construct(const FArguments& InArgs);
 	void RefreshNotes();
@@ -24,7 +24,6 @@ private:
 
 	TSharedPtr<FDevNote> SelectedNote;
 	TArray<TSharedPtr<FDevNote>> NotesSource;
-
 
 	TSharedPtr<SDevNoteEditor> Editor;
 	TSharedPtr<SDevNoteSelector> Selector;

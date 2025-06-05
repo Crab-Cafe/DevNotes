@@ -18,7 +18,7 @@ SLATE_END_ARGS()
 
 void Construct(const FArguments& InArgs);
 
-	void SetNotesSource(const TArray<FDevNote>& InNotes);
+	void SetNotesSource(const TArray<TSharedPtr<FDevNote>>& InNotes);
 
 private:
 	TArray<TSharedPtr<FDevNote>> Notes;
@@ -26,7 +26,6 @@ private:
 	FOnDevNoteSelected NoteSelectedDelegate;
 
 	TSharedRef<ITableRow> OnGenerateNoteRow(TSharedPtr<FDevNote>, const TSharedRef<STableViewBase>&);
-	void OnNoteSelected(TSharedPtr<FDevNote>, ESelectInfo::Type);
 	FReply OnRefreshClicked();
 	FReply OnNewNoteClicked();
 

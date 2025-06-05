@@ -3,7 +3,6 @@
 #include "DevNoteSubsystem.h"
 #include "SDevNoteEditor.h"
 #include "SDevNoteSelector.h"
-#include "Kismet/KismetTextLibrary.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/Layout/SSplitter.h"
@@ -79,7 +78,7 @@ void SDevNotesDropdownWidget::OnNoteSelected(TSharedPtr<FDevNote> InNote)
 	Editor->SetSelectedNote(SelectedNote);
 }
 
-void SDevNotesDropdownWidget::SetNotesSource(const TArray<FDevNote>& InNotes)
+void SDevNotesDropdownWidget::SetNotesSource(const TArray<TSharedPtr<FDevNote>>& InNotes)
 {
 	Selector->SetNotesSource(InNotes);
 	Editor->SetSelectedNote(SelectedNote);
