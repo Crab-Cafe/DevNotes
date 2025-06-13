@@ -23,6 +23,7 @@ private:
 	void NewNote();
 
 	TSharedPtr<FDevNote> SelectedNote;
+	FGuid SelectedNoteId;
 	TArray<TSharedPtr<FDevNote>> NotesSource;
 
 	TSharedPtr<SDevNoteEditor> Editor;

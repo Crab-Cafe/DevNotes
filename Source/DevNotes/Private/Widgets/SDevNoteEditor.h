@@ -3,6 +3,8 @@
 #include "Widgets/SCompoundWidget.h"
 #include "FDevNote.h"
 
+class UDevNoteSubsystem;
+
 class SDevNoteEditor : public SCompoundWidget
 {
 public:
@@ -14,6 +16,7 @@ public:
 	void OnLevelPathChanged(const FAssetData& AssetData);
 	void Construct(const FArguments& InArgs);
 	void SetSelectedNote(TSharedPtr<FDevNote> InNote);
+
 private:
 	TSharedPtr<FDevNote> SelectedNote;
 	FString TitleText;

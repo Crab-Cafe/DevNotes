@@ -16,6 +16,7 @@ ADevNoteActor::ADevNoteActor()
 	AActor::SetActorHiddenInGame(true);
 	bIsEditorOnlyActor = true;
 	SetActorEnableCollision(false);
+	bListedInSceneOutliner = false;
 #endif
 }
 
@@ -26,18 +27,23 @@ void ADevNoteActor::PostEditChangeProperty(struct FPropertyChangedEvent& Propert
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 	
 	if (IsCDO()) return;
+	if (!Note) return;
+	if (!bReadyForSync) return;
 	
 	if (UDevNoteSubsystem* Subsystem = GEditor->GetEditorSubsystem<UDevNoteSubsystem>())
 	{
 		Note->WorldPosition = GetActorLocation();
 		Subsystem->UpdateNote(*Note);
 	}
+	
 }
 
 void ADevNoteActor::PostEditMove(bool bFinished)
 {
 	Super::PostEditMove(bFinished);
 	if (IsCDO()) return;
+	if (!Note) return;
+	if (!bReadyForSync) return;
 	
 	if (bFinished)
 	{
@@ -52,20 +58,20 @@ void ADevNoteActor::PostEditMove(bool bFinished)
 bool ADevNoteActor::IsCDO()
 {
 	// Is CDO?
-	if (HasAnyFlags(RF_ClassDefaultObject))
-	{
-		return true;
-	}
-
-	// Is in an editor?
-	UWorld* World = GetWorld();
-	const bool bIsGameWorld = (World && !(World->WorldType == EWorldType::Editor || World->WorldType == EWorldType::EditorPreview));
-	if (!World || !bIsGameWorld)
+	if (HasAnyFlags(RF_ClassDefaultObject) || HasAnyFlags(RF_ArchetypeObject))
 	{
 		return true;
 	}
 
 	return false;
+}
+
+const FDevNote ADevNoteActor::GetNote() const
+{
+	if (Note)
+		return *Note;
+
+	return FDevNote();
 }
 
 

@@ -19,7 +19,7 @@ SLATE_END_ARGS()
 void Construct(const FArguments& InArgs);
 
 	void SetNotesSource(const TArray<TSharedPtr<FDevNote>>& InNotes);
-
+	void SetSelectedNote(const TSharedPtr<FDevNote>& InNote);
 private:
 	TArray<TSharedPtr<FDevNote>> Notes;
 	TSharedPtr<SListView<TSharedPtr<FDevNote>>> NotesListView;
@@ -31,7 +31,6 @@ private:
 
 	FOnRefreshNotes OnRefreshNotes;
 	FOnNewNote OnNewNote;
-
 
 	void OnNoteSelectedInternal(TSharedPtr<FDevNote> InNote, ESelectInfo::Type);
 

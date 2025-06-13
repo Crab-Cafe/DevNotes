@@ -49,7 +49,8 @@ public class DevNotes : ModuleRules
 				"EditorScriptingUtilities", 
 				"EditorSubsystem",
 				"PropertyEditor",
-				"LevelEditor"
+				"LevelEditor", 
+				"HTTPServer"
 
 				// ... add private dependencies that you statically link with here ...	
 			}

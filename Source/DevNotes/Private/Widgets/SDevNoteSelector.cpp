@@ -36,12 +36,14 @@ void SDevNoteSelector::Construct(const FArguments& InArgs)
         [
             SAssignNew(NotesListView, SListView<TSharedPtr<FDevNote>>)
             .ListItemsSource(&Notes)
+            .ReturnFocusToSelection(true)
             .OnGenerateRow(this, &SDevNoteSelector::OnGenerateNoteRow)
             .OnSelectionChanged(this, &SDevNoteSelector::OnNoteSelectedInternal)
             .SelectionMode(ESelectionMode::Single)
         ]
     ];
 }
+
 
 void SDevNoteSelector::SetNotesSource(const TArray<TSharedPtr<FDevNote>>& InNotes)
 {
@@ -57,6 +59,14 @@ void SDevNoteSelector::SetNotesSource(const TArray<TSharedPtr<FDevNote>>& InNote
     }
 }
 
+void SDevNoteSelector::SetSelectedNote(const TSharedPtr<FDevNote>& InNote)
+{
+    if (NotesListView.IsValid())
+    {
+        NotesListView->SetSelection(InNote);
+    }
+}
+
 TSharedRef<ITableRow> SDevNoteSelector::OnGenerateNoteRow(
     TSharedPtr<FDevNote> InNote,
     const TSharedRef<STableViewBase>& OwnerTable)
@@ -67,7 +77,7 @@ TSharedRef<ITableRow> SDevNoteSelector::OnGenerateNoteRow(
     ];
 }
 
-void SDevNoteSelector::OnNoteSelectedInternal(TSharedPtr<FDevNote> InNote, ESelectInfo::Type)
+void SDevNoteSelector::OnNoteSelectedInternal(TSharedPtr<FDevNote> InNote, ESelectInfo::Type SelectionType)
 {
     if (NoteSelectedDelegate.IsBound())
     {
@@ -81,6 +91,7 @@ FReply SDevNoteSelector::OnRefreshClicked()
     {
         OnRefreshNotes.Execute();
     }
+    
     return FReply::Handled();
 }
 

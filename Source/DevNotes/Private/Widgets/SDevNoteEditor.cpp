@@ -27,10 +27,7 @@ FString SDevNoteEditor::GetLevelPath() const
 void SDevNoteEditor::OnLevelPathChanged(const FAssetData& AssetData)
 {
     SelectedNote->LevelPath = AssetData.GetSoftObjectPath();
-    if (UDevNoteSubsystem* Subsystem = GEditor->GetEditorSubsystem<UDevNoteSubsystem>())
-    {
-        Subsystem->UpdateNote(*SelectedNote);
-    }
+    UDevNoteSubsystem::Get()->UpdateNote(*SelectedNote);
 }
 
 void SDevNoteEditor::Construct(const FArguments& InArgs)
@@ -56,6 +53,8 @@ void SDevNoteEditor::Construct(const FArguments& InArgs)
             })
             .OnTextChanged_Lambda([this](const FText& NewText) {
                 TitleText = NewText.ToString();
+                UDevNoteSubsystem::Get()->SetEditorEditingState(true);
+
             })
             .IsEnabled_Lambda([this]() -> bool {
                 return SelectedNote.IsValid();
@@ -71,6 +70,7 @@ void SDevNoteEditor::Construct(const FArguments& InArgs)
                     {
                         Subsystem->UpdateNote(*SelectedNote);
                     }
+                    UDevNoteSubsystem::Get()->SetEditorEditingState(false);
                 }
             })
         ]
@@ -104,13 +104,17 @@ void SDevNoteEditor::Construct(const FArguments& InArgs)
 
                 const FVector& Loc = SelectedNote->WorldPosition;
 
-                FDateTime localTime = (FDateTime::Now().GetTicks() - FDateTime::UtcNow().GetTicks()) + SelectedNote->CreatedAt.GetTicks();
+                FDateTime localTimeCreated = (FDateTime::Now().GetTicks() - FDateTime::UtcNow().GetTicks()) + SelectedNote->CreatedAt.GetTicks();
+                FDateTime localTimeLastEdited = (FDateTime::Now().GetTicks() - FDateTime::UtcNow().GetTicks()) + SelectedNote->LastEdited.GetTicks();
 
-                FString CreatedAtStr = localTime.ToString(TEXT("%Y-%m-%d %H:%M:%S"));
+                FString CreatedAtStr = localTimeCreated.ToString(TEXT("%Y-%m-%d %H:%M:%S"));
+                FString LastEditedStr = localTimeLastEdited.ToString(TEXT("%Y-%m-%d %H:%M:%S"));
+
                 FString Details = FString::Printf(
-                    TEXT("Location: (%.1f, %.1f, %.1f)\nCreated At: %s"),
+                    TEXT("Location: (%.1f, %.1f, %.1f)\nCreated At: %s\nLast Edited: %s"),
                     Loc.X, Loc.Y, Loc.Z,
-                    *CreatedAtStr);
+                    *CreatedAtStr,
+                    *LastEditedStr);
 
                 return FText::FromString(Details);
             })
@@ -129,6 +133,7 @@ void SDevNoteEditor::Construct(const FArguments& InArgs)
                 })
                 .OnTextChanged_Lambda([this](const FText& NewText) {
                     BodyText = NewText.ToString();
+                    UDevNoteSubsystem::Get()->SetEditorEditingState(true);
                 })
                 .IsEnabled_Lambda([this]() -> bool {
                     return SelectedNote.IsValid();
@@ -140,10 +145,9 @@ void SDevNoteEditor::Construct(const FArguments& InArgs)
                         BodyText = NewText.ToString();
                         SelectedNote->Body = BodyText;
 
-                        if (UDevNoteSubsystem* Subsystem = GEditor->GetEditorSubsystem<UDevNoteSubsystem>())
-                        {
-                            Subsystem->UpdateNote(*SelectedNote);
-                        }
+                        auto ss = UDevNoteSubsystem::Get();
+                        ss->UpdateNote(*SelectedNote);
+                        ss->SetEditorEditingState(false);
                     }
                 })
         ]

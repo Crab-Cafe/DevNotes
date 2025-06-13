@@ -12,6 +12,7 @@
  * 
  */
 
+class ADevNoteActor;
 DECLARE_MULTICAST_DELEGATE(FOnNotesUpdated);
 
 UCLASS()
@@ -23,10 +24,10 @@ public:
 	// TickableEditorObject interface
 	virtual void Tick(float DeltaTime) override;
 	virtual bool IsTickable() const override { return true; }
-	virtual TStatId GetStatId() const override { RETURN_QUICK_DECLARE_CYCLE_STAT(UDevNoteSubsystem, STATGROUP_Tickables); }
 	
+	virtual TStatId GetStatId() const override { RETURN_QUICK_DECLARE_CYCLE_STAT(UDevNoteSubsystem, STATGROUP_Tickables); }
+	void OnPollNotesTimer();
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
-
 	void RequestNotesFromServer();
 	
 	const TArray<TSharedPtr<FDevNote>>& GetNotes() const { return CachedNotes; }
@@ -38,25 +39,39 @@ public:
 
 	void PromptAndTeleportToNote(const FDevNote& note);
 	
-	void SpawnWaypointForNote(TSharedPtr<FDevNote> Note);
+	ADevNoteActor* SpawnWaypointForNote(TSharedPtr<FDevNote> Note);
 	void ClearAllNoteWaypoints();
 	void RefreshWaypointActors();
+	TArray<TSharedPtr<FDevNote>> GetSelectedNotes();
+	void StoreSelectedNoteIDs();
 
 	FOnNotesUpdated OnNotesUpdated;
-
-	TSet<FString> GetLoadedLevelPaths();
+	FTimerHandle RefreshNotesTimerHandle;
 
 	static bool ParseNoteFromJsonObject(const TSharedPtr<FJsonObject>& JsonObj, FDevNote& OutNote);
 	static TSharedPtr<FJsonObject> ConvertNoteToJsonObject(const FDevNote& Note);
 	static FString SerializeNoteToJsonString(const FDevNote& Note);
 	
 	void CreateNewNoteAtEditorLocation();
+	void SetEditorEditingState(bool bEditing);
+
+
+	static UDevNoteSubsystem* Get();
 private:
+	bool bIsEditorEditing = false;
+	bool bRefreshPendingWhileEditing = false;
+
 	TArray<TSharedPtr<FDevNote>> CachedNotes;
+
+	UPROPERTY()
+	TSet<FGuid> SelectedNoteIDsBeforeRefresh;
+
+
 	
 	void ParseNotesFromJson(const FString& JsonString);
 	void HandleNotesResponse(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful);
-	
+
+	TSet<FString> GetLoadedLevelPaths();
 	FString GetServerAddress() const;
 };
 

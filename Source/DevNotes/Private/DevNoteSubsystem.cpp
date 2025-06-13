@@ -7,9 +7,11 @@
 #include "EngineUtils.h"
 #include "FileHelpers.h"
 #include "HttpModule.h"
+#include "HttpServerConstants.h"
 #include "JsonObjectConverter.h"
 #include "LevelEditorSubsystem.h"
 #include "LevelEditorViewport.h"
+#include "Selection.h"
 #include "DevNotes/DevNotesDeveloperSettings.h"
 #include "Interfaces/IHttpRequest.h"
 #include "Interfaces/IHttpResponse.h"
@@ -57,22 +59,42 @@ void UDevNoteSubsystem::Tick(float DeltaTime)
 {
 }
 
+void UDevNoteSubsystem::OnPollNotesTimer()
+{
+	if (!bIsEditorEditing)
+	{
+		RequestNotesFromServer();
+	}
+	else
+	{
+		bRefreshPendingWhileEditing = true;
+	}
+
+}
+
 void UDevNoteSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
+	GEditor->GetTimerManager()->SetTimer(
+		RefreshNotesTimerHandle,
+		this,
+		&UDevNoteSubsystem::OnPollNotesTimer,
+		30.0f,
+		true
+	);
+
 }
 
 void UDevNoteSubsystem::RequestNotesFromServer()
 {
 	FHttpModule* Http = &FHttpModule::Get();
 	TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = Http->CreateRequest();
-
+	
 	Request->OnProcessRequestComplete().BindUObject(this, &UDevNoteSubsystem::HandleNotesResponse);
 	Request->SetURL(GetServerAddress() + TEXT("/notes"));
 	Request->SetVerb("GET");
 	Request->SetHeader("Content-Type", "application/json");
 	Request->ProcessRequest();
-	
 }
 
 void UDevNoteSubsystem::PostNote(const FDevNote& Note)
@@ -85,17 +107,18 @@ void UDevNoteSubsystem::PostNote(const FDevNote& Note)
 	Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
 	Request->SetContentAsString(JsonString);
 
-	Request->OnProcessRequestComplete().BindLambda([](FHttpRequestPtr Req, FHttpResponsePtr Response, bool bSuccess)
+	Request->OnProcessRequestComplete().BindLambda([this](FHttpRequestPtr Req, FHttpResponsePtr Response, bool bSuccess)
 	{
 		if (bSuccess && Response->GetResponseCode() == 201)
 		{
 			UE_LOG(LogDevNotes, Log, TEXT("Note posted successfully."));
+			RequestNotesFromServer();
 		}
 		else
 		{
 			if (Response)
 			{
-				UE_LOG(LogDevNotes, Error, TEXT("Failed to post note: %s"), *Response->GetContentAsString());
+				UE_LOG(LogDevNotes, Error, TEXT("Failed to post note: %s. \nError: %d \nReason:%hhd"), *Response->GetContentAsString(), Response->GetResponseCode(), Response->GetFailureReason());
 			}
 			else
 			{
@@ -117,17 +140,18 @@ void UDevNoteSubsystem::UpdateNote(const FDevNote& Note)
 	Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
 	Request->SetContentAsString(JsonString);
 
-	Request->OnProcessRequestComplete().BindLambda([](FHttpRequestPtr Req, FHttpResponsePtr Response, bool bSuccess)
+	Request->OnProcessRequestComplete().BindLambda([this](FHttpRequestPtr Req, FHttpResponsePtr Response, bool bSuccess)
 	{
-		if (bSuccess && Response->GetResponseCode() == 201)
+		if (bSuccess && Response->GetResponseCode() == static_cast<int>(EHttpServerResponseCodes::Ok))
 		{
 			UE_LOG(LogDevNotes, Log, TEXT("Note updated successfully."));
+			RequestNotesFromServer();
 		}
 		else
 		{
 			if (Response)
 			{
-				UE_LOG(LogDevNotes, Error, TEXT("Failed to post note: %s"), *Response->GetContentAsString());
+				UE_LOG(LogDevNotes, Error, TEXT("Failed to update note: %s. \nError: %d \nReason:%hhd"), *Response->GetContentAsString(), Response->GetResponseCode(), Response->GetFailureReason());
 			}
 			else
 			{
@@ -146,11 +170,12 @@ void UDevNoteSubsystem::DeleteNote(const FGuid& NoteId)
 	Request->SetVerb("DELETE");
 	Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
 
-	Request->OnProcessRequestComplete().BindLambda([](FHttpRequestPtr Req, FHttpResponsePtr Response, bool bSuccess)
+	Request->OnProcessRequestComplete().BindLambda([this](FHttpRequestPtr Req, FHttpResponsePtr Response, bool bSuccess)
 	{
 		if (bSuccess && Response->GetResponseCode() == 201)
 		{
 			UE_LOG(LogDevNotes, Log, TEXT("Note deleted successfully."));
+			RequestNotesFromServer();
 		}
 		else
 		{
@@ -279,6 +304,10 @@ bool UDevNoteSubsystem::ParseNoteFromJsonObject(const TSharedPtr<FJsonObject>& J
 	JsonObj->TryGetStringField(TEXT("createdAt"), dateTimeString);
 	FDateTime::ParseIso8601(*dateTimeString, OutNote.CreatedAt);
 
+	FString lastEditedString;
+	JsonObj->TryGetStringField(TEXT("lastEdited"), lastEditedString);
+	FDateTime::ParseIso8601(*lastEditedString, OutNote.LastEdited);
+
 	return true;
 }
 
@@ -297,6 +326,8 @@ TSharedPtr<FJsonObject> UDevNoteSubsystem::ConvertNoteToJsonObject(const FDevNot
 
 	JsonObject->SetStringField(TEXT("levelPath"), Note.LevelPath.ToString());
 	JsonObject->SetStringField(TEXT("createdAt"), Note.CreatedAt.ToIso8601());
+	JsonObject->SetStringField(TEXT("lastEdited"), FDateTime::UtcNow().ToIso8601());
+
 
 	return JsonObject;
 }
@@ -323,6 +354,25 @@ void UDevNoteSubsystem::CreateNewNoteAtEditorLocation()
 	PostNote(*newNote);
 }
 
+void UDevNoteSubsystem::SetEditorEditingState(bool bEditing)
+{
+	bIsEditorEditing = bEditing;
+	if (!bIsEditorEditing && bRefreshPendingWhileEditing)
+	{
+		bRefreshPendingWhileEditing = false;
+		RequestNotesFromServer();
+	}
+}
+
+UDevNoteSubsystem* UDevNoteSubsystem::Get()
+{
+	if (GEditor)
+	{
+		return GEditor->GetEditorSubsystem<UDevNoteSubsystem>();
+	}
+	return nullptr;
+}
+
 void UDevNoteSubsystem::ParseNotesFromJson(const FString& JsonString)
 {
 	TArray<TSharedPtr<FJsonValue>> NotesArray;
@@ -335,7 +385,6 @@ void UDevNoteSubsystem::ParseNotesFromJson(const FString& JsonString)
 		for (const TSharedPtr<FJsonValue>& Value : NotesArray)
 		{
 			TSharedPtr<FJsonObject> JsonObj = Value->AsObject();
-
 			TSharedPtr<FDevNote> Note = MakeShared<FDevNote>();
 			
 			if (ParseNoteFromJsonObject(JsonObj, *Note))
@@ -360,9 +409,10 @@ void UDevNoteSubsystem::HandleNotesResponse(FHttpRequestPtr Request, FHttpRespon
 
 	TArray<TSharedPtr<FJsonValue>> JsonArray;
 	const FString ResponseString = Response->GetContentAsString();
-
+	
 	ParseNotesFromJson(ResponseString);
 	OnNotesUpdated.Broadcast();
+	
 	RefreshWaypointActors();
 }
 
@@ -373,12 +423,12 @@ FString UDevNoteSubsystem::GetServerAddress() const
 }
 
 
-inline void UDevNoteSubsystem::SpawnWaypointForNote(TSharedPtr<FDevNote> Note)
+ADevNoteActor* UDevNoteSubsystem::SpawnWaypointForNote(TSharedPtr<FDevNote> Note)
 {
-	if (!GEditor) return;
+	if (!GEditor) return nullptr;
 
 	UWorld* World = GEditor->GetEditorWorldContext().World();
-	if (!World) return;
+	if (!World) return nullptr;
 
 	auto settings = GetDefault<UDevNotesDeveloperSettings>();
 	auto spawnClass = settings->DevNoteActorRepresentation.LoadSynchronous();
@@ -396,31 +446,81 @@ inline void UDevNoteSubsystem::SpawnWaypointForNote(TSharedPtr<FDevNote> Note)
 		Waypoint->Note = Note;
 		Waypoint->SetActorLabel(TEXT("DevNote ") + Note->Title, false);
 		Waypoint->SetIsTemporarilyHiddenInEditor(false);
+
+
+		Waypoint->bReadyForSync = true;
 	}
+
+	return Waypoint;
 }
 
 void UDevNoteSubsystem::ClearAllNoteWaypoints()
 {
 	if (!GEditor) return;
-
+	
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World) return;
 
 	for (TActorIterator<ADevNoteActor> It(World); It; ++It)
 	{
+		GEditor->SelectActor(*It, false, true);
 		It->Destroy();
 	}
 }
 
 void UDevNoteSubsystem::RefreshWaypointActors()
 {
+	StoreSelectedNoteIDs();
 	ClearAllNoteWaypoints();
+
+	TArray<AActor*> selection;
 	
 	auto CurrentLevels = GetLoadedLevelPaths();
 	for (auto Note : CachedNotes)
 	{
 		auto levelString = Note->LevelPath.GetLongPackageName();
 		if (!CurrentLevels.Contains(levelString)) continue;
-		SpawnWaypointForNote(Note);
+		auto spawned = SpawnWaypointForNote(Note);
+		if (!spawned) continue;
+
+		if (SelectedNoteIDsBeforeRefresh.Contains(Note->Id))
+		{
+			selection.Add(spawned);
+		}
+	}
+
+	for (auto actor : selection)
+	{
+		GEditor->SelectActor(actor, true, true);
+	}
+}
+
+TArray<TSharedPtr<FDevNote>> UDevNoteSubsystem::GetSelectedNotes()
+{
+	TArray<TSharedPtr<FDevNote>> SelectedNotes;
+	USelection* selection = GEditor->GetSelectedActors();
+	TArray<AActor*> selectionArray;
+	selection->GetSelectedObjects(selectionArray);
+	for (AActor* Actor : selectionArray)
+	{
+		ADevNoteActor* Waypoint = Cast<ADevNoteActor>(Actor);
+		if (Waypoint)
+		{
+			SelectedNotes.Add(Waypoint->Note);
+		}
+	}
+	return SelectedNotes;
+}
+
+void UDevNoteSubsystem::StoreSelectedNoteIDs()
+{
+	SelectedNoteIDsBeforeRefresh.Empty();
+	TArray<TSharedPtr<FDevNote>> SelectedNotes = GetSelectedNotes();
+	for (TSharedPtr<FDevNote> Note : SelectedNotes)
+	{
+		if (Note)
+		{
+			SelectedNoteIDsBeforeRefresh.Add(Note->Id);
+		}
 	}
 }

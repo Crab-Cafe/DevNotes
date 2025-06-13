@@ -76,12 +76,33 @@ void SDevNotesDropdownWidget::OnNoteSelected(TSharedPtr<FDevNote> InNote)
 {
 	SelectedNote = InNote;
 	Editor->SetSelectedNote(SelectedNote);
+	SelectedNoteId = (InNote.IsValid()) ? InNote->Id : FGuid();
 }
 
 void SDevNotesDropdownWidget::SetNotesSource(const TArray<TSharedPtr<FDevNote>>& InNotes)
 {
 	Selector->SetNotesSource(InNotes);
+
+	if (SelectedNoteId.IsValid())
+	{
+		TSharedPtr<FDevNote> Found;
+		for (const TSharedPtr<FDevNote>& Note : InNotes)
+		{
+			if (Note.IsValid() && Note->Id == SelectedNoteId)
+			{
+				Found = Note;
+				break;
+			}
+		}
+		SelectedNote = Found;
+	}
+	else
+	{
+		SelectedNote.Reset();
+	}
+	
 	Editor->SetSelectedNote(SelectedNote);
+	Selector->SetSelectedNote(SelectedNote);
 }
 
 void SDevNotesDropdownWidget::OnNotesUpdated()

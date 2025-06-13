@@ -17,7 +17,11 @@ public:
 	ADevNoteActor();
 	bool IsCDO();
 
+	UFUNCTION(BlueprintPure, BlueprintCallable)
+	const FDevNote GetNote() const;
+
 	TSharedPtr<FDevNote> Note;
+	bool bReadyForSync = false;
 protected:
 	virtual void PostEditChangeProperty(struct FPropertyChangedEvent& PropertyChangedEvent) override;
 	virtual void PostEditMove(bool bFinished) override;

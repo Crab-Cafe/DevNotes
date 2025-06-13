@@ -7,24 +7,27 @@ struct FDevNote
 {
 	GENERATED_BODY()
 
-	UPROPERTY()
+	UPROPERTY(BlueprintReadOnly)
 	FGuid Id;
 	
-	UPROPERTY()
+	UPROPERTY(BlueprintReadOnly)
 	FString Title;
 
-	UPROPERTY()
+	UPROPERTY(BlueprintReadOnly)
 	FString Body;
 
-	UPROPERTY()
+	UPROPERTY(BlueprintReadOnly)
 	FGuid CreatedById;
 
-	UPROPERTY()
+	UPROPERTY(BlueprintReadOnly)
 	FDateTime CreatedAt;
+
+	UPROPERTY(BlueprintReadOnly)
+	FDateTime LastEdited;
 	
-	UPROPERTY()
+	UPROPERTY(BlueprintReadOnly)
 	TSoftObjectPtr<UWorld> LevelPath;
 	
-	UPROPERTY()
+	UPROPERTY(BlueprintReadOnly)
 	FVector WorldPosition;
 };
