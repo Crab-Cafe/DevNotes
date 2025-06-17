@@ -1,5 +1,6 @@
 ﻿#include "SDevNotesDropdownWidget.h"
 
+#include "DevNotesLog.h"
 #include "DevNoteSubsystem.h"
 #include "SDevNoteEditor.h"
 #include "SDevNoteSelector.h"
@@ -25,6 +26,18 @@ void SDevNotesDropdownWidget::RefreshNotes()
 	}
 }
 
+void SDevNotesDropdownWidget::OnSignedIn(FString Token)
+{
+	Editor->SetEnabled(true);
+	Selector->SetEnabled(true);
+}
+
+void SDevNotesDropdownWidget::OnSignedOut()
+{
+	Editor->SetEnabled(false);
+	Selector->SetEnabled(false);
+}
+
 void SDevNotesDropdownWidget::NewNote()
 {
 	if (GEditor)
@@ -44,8 +57,11 @@ void SDevNotesDropdownWidget::Construct(const FArguments& InArgs)
 		if (Subsystem)
 		{
 			Subsystem->OnNotesUpdated.AddSP(SharedThis(this), &SDevNotesDropdownWidget::OnNotesUpdated);
+			Subsystem->OnSignedIn.AddSP(SharedThis(this), &SDevNotesDropdownWidget::OnSignedIn);
+			Subsystem->OnSignedOut.AddSP(SharedThis(this), &SDevNotesDropdownWidget::OnSignedOut);
 		}
 	}
+
 
 	bIsLoggedIn = false;
 	ErrorMsg = FString();
@@ -99,7 +115,13 @@ void SDevNotesDropdownWidget::TryUpdateLoginStatus()
 	{
 		if (UDevNoteSubsystem* Subsystem = GEditor->GetEditorSubsystem<UDevNoteSubsystem>())
 		{
-			bIsLoggedIn = Subsystem->TryAutoSignIn();
+			bIsLoggedIn = Subsystem->IsLoggedIn();
+			if (!bIsLoggedIn)
+			{
+				bIsLoggedIn = Subsystem->TryAutoSignIn();
+			}
+			Editor->SetEnabled(bIsLoggedIn);
+			Selector->SetEnabled(bIsLoggedIn);
 			UpdateLoginStatusBox();
 		}
 	}
@@ -274,10 +296,10 @@ FReply SDevNotesDropdownWidget::OnLogoutClicked()
 		if (UDevNoteSubsystem* Subsystem = GEditor->GetEditorSubsystem<UDevNoteSubsystem>())
 		{
 			Subsystem->SignOut(
-	[this](bool bSuccess) {
-		this->OnLogoutResponse(bSuccess);
-	}
-);
+			[this](bool bSuccess) {
+				this->OnLogoutResponse(bSuccess);
+			}
+		);
 
 		}
 	}

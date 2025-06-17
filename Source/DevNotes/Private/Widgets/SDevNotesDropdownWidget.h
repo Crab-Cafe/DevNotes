@@ -23,6 +23,9 @@ public:
 	void OnNotesUpdated();
 	void Construct(const FArguments& InArgs);
 	void RefreshNotes();
+
+	void OnSignedIn(FString Token);
+	void OnSignedOut();
 private:
 	void NewNote();
 

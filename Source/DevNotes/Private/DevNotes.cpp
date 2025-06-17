@@ -21,7 +21,10 @@ void FDevNotesModule::OnMapOpened(const FString& String, bool bArg)
 {
 	if (UDevNoteSubsystem* Subsystem = GEditor->GetEditorSubsystem<UDevNoteSubsystem>())
 	{
-		Subsystem->RequestNotesFromServer();
+		if (Subsystem->IsLoggedIn())
+		{
+			Subsystem->RequestNotesFromServer();
+		}
 	}
 }
 

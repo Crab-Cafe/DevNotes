@@ -16,6 +16,8 @@ struct FDevNoteTag;
 class ADevNoteActor;
 DECLARE_MULTICAST_DELEGATE(FOnNotesUpdated);
 DECLARE_MULTICAST_DELEGATE(FOnTagsUpdated);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnSignedIn, FString);
+DECLARE_MULTICAST_DELEGATE(FOnSignedOut);
 
 UCLASS()
 class DEVNOTES_API UDevNoteSubsystem : public UEditorSubsystem, public FTickableEditorObject
@@ -50,6 +52,8 @@ public:
 
 	FOnNotesUpdated OnNotesUpdated;
 	FOnTagsUpdated OnTagsUpdated;
+	FOnSignedIn OnSignedIn;
+	FOnSignedOut OnSignedOut;
 	FTimerHandle RefreshNotesTimerHandle;
 
 	static bool ParseNoteFromJsonObject(const TSharedPtr<FJsonObject>& JsonObj, FDevNote& OutNote);
@@ -91,9 +95,14 @@ private:
 
 	const FString SessionTokenFileName = TEXT("DevNotes/session.token");
 	FString GetSessionTokenFilePath() const;
-	FString LoadSessionToken() const;
-	void SaveSessionToken(const FString& Token) const;
-	void DeleteSessionToken() const;
+	FString LoadSessionTokenFromFile() const;
+	void SaveSessionTokenToFile(const FString& Token) const;
+	void DeleteSessionTokenFile() const;
+	void SetSessionToken(const FString& Token);
+	void ClearSessionToken();
+	void SignOutInternal();
+	void RetryTokenValidation();
+	void HandleTokenInvalidation(TSharedPtr<IHttpResponse> HttpResponse);
 
 public:
 	void SignIn(const FString& UserName, const FString& Password, 
@@ -101,5 +110,7 @@ public:
 
 
 	void SignOut(TFunction<void(bool)> Completion);
+
+	bool IsLoggedIn() const;
 };
 

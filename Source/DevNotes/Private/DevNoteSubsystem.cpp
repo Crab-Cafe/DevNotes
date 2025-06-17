@@ -62,6 +62,8 @@ void UDevNoteSubsystem::Tick(float DeltaTime)
 
 void UDevNoteSubsystem::OnPollNotesTimer()
 {
+	if (!IsLoggedIn()) return;
+		
 	if (!bIsEditorEditing)
 	{
 		RequestNotesFromServer();
@@ -73,24 +75,88 @@ void UDevNoteSubsystem::OnPollNotesTimer()
 
 }
 
+bool UDevNoteSubsystem::TryAutoSignIn()
+{
+	const FString SavedToken = LoadSessionTokenFromFile();
+	if (SavedToken.IsEmpty())
+	{
+		UE_LOG(LogDevNotes, Log, TEXT("No saved session token found"));
+		return false;
+	}
+
+	// Set the token optimistically - we'll clear it only if server explicitly rejects it
+	SessionToken = SavedToken;
+	UE_LOG(LogDevNotes, Log, TEXT("Loaded session token from file, validating with server..."));
+
+	// Create HTTP request to validate token
+	TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
+	Request->SetURL(GetServerAddress() + TEXT("/validatetoken"));
+	Request->SetVerb(TEXT("POST"));
+	Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
+	Request->SetContentAsString(SavedToken);
+
+	// Response handler
+	Request->OnProcessRequestComplete().BindLambda(
+		[this, SavedToken](FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse, bool bWasSuccessful)
+		{
+			if (bWasSuccessful && HttpResponse.IsValid())
+			{
+				const int32 ResponseCode = HttpResponse->GetResponseCode();
+				UE_LOG(LogDevNotes, Log, TEXT("Token validation response: %d"), ResponseCode);
+				
+				if (ResponseCode == 200)
+				{
+					// Token is valid - we're already set up, just broadcast the event
+					UE_LOG(LogDevNotes, Log, TEXT("Session token validated successfully"));
+					OnSignedIn.Broadcast(SavedToken);
+				}
+				else if (ResponseCode == 401 || ResponseCode == 403)
+				{
+					// Token is explicitly rejected by server - clear it
+					UE_LOG(LogDevNotes, Warning, TEXT("Session token rejected by server (code: %d) - clearing"), ResponseCode);
+					ClearSessionToken();
+					OnSignedOut.Broadcast();
+				}
+				else
+				{
+					// Other server error - keep token but don't sign in yet
+					UE_LOG(LogDevNotes, Warning, TEXT("Server error during token validation (code: %d) - keeping token for retry"), ResponseCode);
+				}
+			}
+			else
+			{
+				// Network error or no response - keep the token, don't sign in yet
+				// This prevents losing tokens when the server is temporarily unavailable
+				UE_LOG(LogDevNotes, Warning, TEXT("Failed to validate token due to network error - keeping token for retry"));
+			}
+		});
+
+	Request->ProcessRequest();
+	return true;
+}
+
 void UDevNoteSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
-	if (!TryAutoSignIn())
+	
+	// Try to restore session from saved token
+	TryAutoSignIn();
+	
+	// Set up signed-in event handler
+	OnSignedIn.AddWeakLambda(this, [this](FString Token)
 	{
-		
-	}
-	else
-	{
-		GEditor->GetTimerManager()->SetTimer(
-		RefreshNotesTimerHandle,
-		this,
-		&UDevNoteSubsystem::OnPollNotesTimer,
-		30.0f,
-		true
-	);
+		UE_LOG(LogDevNotes, Log, TEXT("Signed in successfully, starting data sync..."));
 		RequestTagsFromServer();
-	}
+		RequestNotesFromServer();
+
+		// Start polling timer
+		GEditor->GetTimerManager()->SetTimer(
+			RefreshNotesTimerHandle,
+			this,
+			&UDevNoteSubsystem::OnPollNotesTimer,
+			30.0f,
+			true);
+	});
 }
 
 void UDevNoteSubsystem::RequestNotesFromServer()
@@ -119,6 +185,8 @@ void UDevNoteSubsystem::PostNote(const FDevNote& Note)
 
 	Request->OnProcessRequestComplete().BindLambda([this](FHttpRequestPtr Req, FHttpResponsePtr Response, bool bSuccess)
 	{
+		HandleTokenInvalidation(Response);
+
 		if (bSuccess && Response->GetResponseCode() == 201)
 		{
 			UE_LOG(LogDevNotes, Log, TEXT("Note posted successfully."));
@@ -153,6 +221,8 @@ void UDevNoteSubsystem::UpdateNote(const FDevNote& Note)
 
 	Request->OnProcessRequestComplete().BindLambda([this](FHttpRequestPtr Req, FHttpResponsePtr Response, bool bSuccess)
 	{
+		HandleTokenInvalidation(Response);
+
 		if (bSuccess && Response->GetResponseCode() == static_cast<int>(EHttpServerResponseCodes::Ok))
 		{
 			UE_LOG(LogDevNotes, Log, TEXT("Note updated successfully."));
@@ -184,6 +254,8 @@ void UDevNoteSubsystem::DeleteNote(const FGuid& NoteId)
 
 	Request->OnProcessRequestComplete().BindLambda([this](FHttpRequestPtr Req, FHttpResponsePtr Response, bool bSuccess)
 	{
+		HandleTokenInvalidation(Response);
+
 		if (bSuccess && Response->GetResponseCode() == 201)
 		{
 			UE_LOG(LogDevNotes, Log, TEXT("Note deleted successfully."));
@@ -440,7 +512,8 @@ void UDevNoteSubsystem::HandleTagsResponse(TSharedPtr<IHttpRequest> HttpRequest,
 	bool bWasSuccessful)
 {
 	CachedTags.Empty();
-	
+	HandleTokenInvalidation(HttpResponse);
+
 	if (bWasSuccessful && HttpResponse->GetResponseCode() == 200)
 	{
 		FString ResponseString = HttpResponse->GetContentAsString();
@@ -512,6 +585,8 @@ void UDevNoteSubsystem::ParseNotesFromJson(const FString& JsonString)
 
 void UDevNoteSubsystem::HandleNotesResponse(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful)
 {
+	HandleTokenInvalidation(Response);
+
 	if (!bWasSuccessful || !Response.IsValid())
 	{
 		UE_LOG(LogTemp, Error, TEXT("Failed to get notes"));
@@ -533,12 +608,14 @@ FString UDevNoteSubsystem::GetServerAddress() const
 	return Settings && !Settings->ServerAddress.IsEmpty() ? Settings->ServerAddress : TEXT("http://localhost:5281");
 }
 
+// Authentication and Token Management Methods
+
 FString UDevNoteSubsystem::GetSessionTokenFilePath() const
 {
 	return FPaths::ProjectSavedDir() / SessionTokenFileName;
 }
 
-FString UDevNoteSubsystem::LoadSessionToken() const
+FString UDevNoteSubsystem::LoadSessionTokenFromFile() const
 {
 	FString Token;
 	FFileHelper::LoadFileToString(Token, *GetSessionTokenFilePath());
@@ -546,18 +623,85 @@ FString UDevNoteSubsystem::LoadSessionToken() const
 	return Token;
 }
 
-void UDevNoteSubsystem::SaveSessionToken(const FString& Token) const
+void UDevNoteSubsystem::SaveSessionTokenToFile(const FString& Token) const
 {
 	FFileHelper::SaveStringToFile(Token, *GetSessionTokenFilePath());
 }
 
-void UDevNoteSubsystem::DeleteSessionToken() const
+void UDevNoteSubsystem::DeleteSessionTokenFile() const
 {
 	IFileManager::Get().Delete(*GetSessionTokenFilePath());
 }
 
+void UDevNoteSubsystem::SetSessionToken(const FString& Token)
+{
+	SessionToken = Token;
+	if (!Token.IsEmpty())
+	{
+		SaveSessionTokenToFile(Token);
+	}
+	else
+	{
+		DeleteSessionTokenFile();
+	}
+}
+
+void UDevNoteSubsystem::ClearSessionToken()
+{
+	SessionToken.Empty();
+	DeleteSessionTokenFile();
+}
+
+bool UDevNoteSubsystem::IsLoggedIn() const
+{
+	return !SessionToken.IsEmpty();
+}
+
+// Also update the token validation to be more robust
+void UDevNoteSubsystem::HandleTokenInvalidation(TSharedPtr<IHttpResponse> HttpResponse)
+{
+	if (HttpResponse.IsValid())
+	{
+		const int32 ResponseCode = HttpResponse->GetResponseCode();
+		
+		// Only treat specific auth-related codes as token invalidation
+		if (ResponseCode == 401 || ResponseCode == 403)
+		{
+			UE_LOG(LogDevNotes, Warning, TEXT("Session token invalidated by server (code: %d). Signing out."), ResponseCode);
+			SignOutInternal();
+		}
+		// Don't invalidate token for other error codes (500, network errors, etc.)
+	}
+}
+
+void UDevNoteSubsystem::SignOutInternal()
+{
+	const bool bWasLoggedIn = IsLoggedIn();
+	
+	// Clear token and cached data
+	ClearSessionToken();
+	CachedNotes.Empty();
+	CachedTags.Empty();
+	
+	// Stop polling timer
+	if (RefreshNotesTimerHandle.IsValid())
+	{
+		GEditor->GetTimerManager()->ClearTimer(RefreshNotesTimerHandle);
+	}
+	
+	// Refresh UI
+	RefreshWaypointActors();
+	OnNotesUpdated.Broadcast();
+	
+	// Broadcast sign out event only if we were actually logged in
+	if (bWasLoggedIn)
+	{
+		OnSignedOut.Broadcast();
+	}
+}
+
 void UDevNoteSubsystem::SignIn(const FString& UserName, const FString& Password,
-	TFunction<void(bool bSuccess, const FString& Error)> Completion)
+                               TFunction<void(bool bSuccess, const FString& Error)> Completion)
 {
 	// Prepare JSON payload
 	TSharedRef<FJsonObject> RequestObj = MakeShared<FJsonObject>();
@@ -585,108 +729,109 @@ void UDevNoteSubsystem::SignIn(const FString& UserName, const FString& Password,
 				const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Response->GetContentAsString());
 				if (FJsonSerializer::Deserialize(Reader, JsonObj) && JsonObj.IsValid() && JsonObj->HasField(TEXT("token")))
 				{
-					FString Token = JsonObj->GetStringField(TEXT("token"));
-					SaveSessionToken(Token);
-					SessionToken = Token;
-					if (Completion) Completion(true, {});
+					const FString Token = JsonObj->GetStringField(TEXT("token"));
+					SetSessionToken(Token);
+					OnSignedIn.Broadcast(Token);
+					
+					if (Completion) 
+					{
+						Completion(true, FString());
+					}
 					return;
 				}
 			}
-			if (Completion)
+			
+			// Handle failure
+			FString ErrorMessage;
+			if (Response.IsValid())
 			{
-				FString Err = (Response.IsValid() ? FString::Printf(TEXT("Sign in failed: %s"), *Response->GetContentAsString()) : TEXT("No server response"));
-				Completion(false, Err);
-			}
-		});
-	HttpRequest->ProcessRequest();
-
-}
-
-bool UDevNoteSubsystem::TryAutoSignIn()
-{
-	FString Token = LoadSessionToken();
-	if (Token.IsEmpty())
-	{
-		return false;
-	}
-
-	
-	// Create the HTTP request
-	TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
-	Request->SetURL(GetServerAddress() + "/validatetoken");
-	Request->SetVerb(TEXT("POST"));
-	Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
-
-	// The endpoint expects a raw JSON string; wrap the token in quotes
-	FString TokenBody = FString::Printf(TEXT("\"%s\""), *Token);
-	Request->SetContentAsString(TokenBody);
-
-	// Bind the response lambda
-	Request->OnProcessRequestComplete().BindLambda(
-		[this, Token](FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse, bool bWasSuccessful)
-		{
-			if (bWasSuccessful && HttpResponse.IsValid())
-			{
-				if (HttpResponse->GetResponseCode() == 200)
-				{
-					// Token valid, optionally parse user info if you desire
-					SessionToken = Token;
-					// Broadcast login status or notify UI here if needed
-				}
-				else
-				{
-					// Token invalid or expired, clear session and prompt for login
-					SessionToken = FString();
-					DeleteSessionToken();
-					// Optionally process error string: HttpResponse->GetContentAsString()
-				}
+				ErrorMessage = FString::Printf(TEXT("Sign in failed: %s"), *Response->GetContentAsString());
 			}
 			else
 			{
-				// Request failed, treat as not logged in
-				SessionToken = FString();
-				DeleteSessionToken();
+				ErrorMessage = TEXT("No server response");
 			}
-
-			// Optionally notify UI or listeners of login status change here
+			
+			if (Completion)
+			{
+				Completion(false, ErrorMessage);
+			}
 		});
-
-	Request->ProcessRequest();
-
-	// Return true, as we tried to use an auto-login token (async result will arrive in the future)
-	return true;
+		
+	HttpRequest->ProcessRequest();
 }
 
 void UDevNoteSubsystem::SignOut(TFunction<void(bool)> Completion)
 {
-	if (SessionToken.IsEmpty())
+	if (!IsLoggedIn())
 	{
-		DeleteSessionToken();
+		// Already signed out
 		if (Completion)
+		{
 			Completion(true);
+		}
 		return;
 	}
 
-	// Create HTTP request
+	// Create HTTP request to sign out on server
 	TSharedRef<IHttpRequest, ESPMode::ThreadSafe> HttpRequest = FHttpModule::Get().CreateRequest();
 	HttpRequest->SetURL(GetServerAddress() + TEXT("/signout"));
 	HttpRequest->SetVerb(TEXT("POST"));
 	HttpRequest->SetHeader(TEXT("X-Session-Token"), *SessionToken);
-	
-	FString TokenBody = FString::Printf(TEXT("\"%s\""), *SessionToken);
-	HttpRequest->SetContentAsString(TokenBody);
+	HttpRequest->SetContentAsString(SessionToken);
 	
 	HttpRequest->OnProcessRequestComplete().BindLambda(
 		[this, Completion](FHttpRequestPtr Req, FHttpResponsePtr Response, bool bWasSuccessful)
 		{
-			DeleteSessionToken();
-			SessionToken.Reset();
+			// Always clear local session regardless of server response
+			SignOutInternal();
+			
+			const bool bSuccess = bWasSuccessful && Response.IsValid() && Response->GetResponseCode() == 200;
+			if (!bSuccess)
+			{
+				UE_LOG(LogDevNotes, Warning, TEXT("Server sign-out request failed, but local session cleared"));
+			}
+			
 			if (Completion)
 			{
-				Completion(bWasSuccessful && Response.IsValid() && Response->GetResponseCode() == 200);
+				Completion(bSuccess);
 			}
 		});
+		
 	HttpRequest->ProcessRequest();
+}
+
+// Add a method to manually retry validation if needed
+void UDevNoteSubsystem::RetryTokenValidation()
+{
+	if (!SessionToken.IsEmpty())
+	{
+		UE_LOG(LogDevNotes, Log, TEXT("Retrying token validation..."));
+		
+		TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
+		Request->SetURL(GetServerAddress() + TEXT("/validatetoken"));
+		Request->SetVerb(TEXT("POST"));
+		Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
+		Request->SetContentAsString(SessionToken);
+
+		Request->OnProcessRequestComplete().BindLambda(
+			[this](FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse, bool bWasSuccessful)
+			{
+				if (bWasSuccessful && HttpResponse.IsValid() && HttpResponse->GetResponseCode() == 200)
+				{
+					UE_LOG(LogDevNotes, Log, TEXT("Token validation retry successful"));
+					OnSignedIn.Broadcast(SessionToken);
+				}
+				else if (bWasSuccessful && HttpResponse.IsValid() && (HttpResponse->GetResponseCode() == 401 || HttpResponse->GetResponseCode() == 403))
+				{
+					UE_LOG(LogDevNotes, Warning, TEXT("Token validation retry failed - token is invalid"));
+					ClearSessionToken();
+					OnSignedOut.Broadcast();
+				}
+			});
+
+		Request->ProcessRequest();
+	}
 }
 
 
@@ -809,6 +954,8 @@ void UDevNoteSubsystem::PostTag(FDevNoteTag NoteTag)
 	Request->SetContentAsString(OutputString);
 	Request->OnProcessRequestComplete().BindLambda([this](FHttpRequestPtr Req, FHttpResponsePtr Response, bool bSuccess)
 	{
+		HandleTokenInvalidation(Response);
+
 		if (bSuccess && Response->GetResponseCode() == 201)
 		{
 			UE_LOG(LogDevNotes, Log, TEXT("Tag created successfully."));
