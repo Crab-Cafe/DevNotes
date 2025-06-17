@@ -76,14 +76,21 @@ void UDevNoteSubsystem::OnPollNotesTimer()
 void UDevNoteSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
-	GEditor->GetTimerManager()->SetTimer(
+	if (!TryAutoSignIn())
+	{
+		
+	}
+	else
+	{
+		GEditor->GetTimerManager()->SetTimer(
 		RefreshNotesTimerHandle,
 		this,
 		&UDevNoteSubsystem::OnPollNotesTimer,
 		30.0f,
 		true
 	);
-	RequestTagsFromServer();
+		RequestTagsFromServer();
+	}
 }
 
 void UDevNoteSubsystem::RequestNotesFromServer()
@@ -95,6 +102,7 @@ void UDevNoteSubsystem::RequestNotesFromServer()
 	Request->SetURL(GetServerAddress() + TEXT("/notes"));
 	Request->SetVerb("GET");
 	Request->SetHeader("Content-Type", "application/json");
+	Request->SetHeader(TEXT("X-Session-Token"), *SessionToken);
 	Request->ProcessRequest();
 }
 
@@ -106,6 +114,7 @@ void UDevNoteSubsystem::PostNote(const FDevNote& Note)
 	Request->SetURL(GetServerAddress() + "/notes");
 	Request->SetVerb("POST");
 	Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
+	Request->SetHeader(TEXT("X-Session-Token"), *SessionToken);
 	Request->SetContentAsString(JsonString);
 
 	Request->OnProcessRequestComplete().BindLambda([this](FHttpRequestPtr Req, FHttpResponsePtr Response, bool bSuccess)
@@ -139,6 +148,7 @@ void UDevNoteSubsystem::UpdateNote(const FDevNote& Note)
 	Request->SetURL(GetServerAddress() + "/notes/" + Note.Id.ToString(EGuidFormats::DigitsWithHyphens));
 	Request->SetVerb("PUT");
 	Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
+	Request->SetHeader(TEXT("X-Session-Token"), *SessionToken);
 	Request->SetContentAsString(JsonString);
 
 	Request->OnProcessRequestComplete().BindLambda([this](FHttpRequestPtr Req, FHttpResponsePtr Response, bool bSuccess)
@@ -170,6 +180,7 @@ void UDevNoteSubsystem::DeleteNote(const FGuid& NoteId)
 	Request->SetURL(GetServerAddress() + "/notes/" + NoteId.ToString(EGuidFormats::DigitsWithHyphens));
 	Request->SetVerb("DELETE");
 	Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
+	Request->SetHeader(TEXT("X-Session-Token"), *SessionToken);
 
 	Request->OnProcessRequestComplete().BindLambda([this](FHttpRequestPtr Req, FHttpResponsePtr Response, bool bSuccess)
 	{
@@ -459,6 +470,7 @@ void UDevNoteSubsystem::RequestTagsFromServer()
 	Request->SetURL(GetServerAddress() + TEXT("/tags"));
 	Request->SetVerb("GET");
 	Request->SetHeader("Content-Type", "application/json");
+	Request->SetHeader(TEXT("X-Session-Token"), *SessionToken);
 	Request->ProcessRequest();
 
 }
@@ -519,6 +531,162 @@ FString UDevNoteSubsystem::GetServerAddress() const
 {
 	const UDevNotesDeveloperSettings* Settings = GetDefault<UDevNotesDeveloperSettings>();
 	return Settings && !Settings->ServerAddress.IsEmpty() ? Settings->ServerAddress : TEXT("http://localhost:5281");
+}
+
+FString UDevNoteSubsystem::GetSessionTokenFilePath() const
+{
+	return FPaths::ProjectSavedDir() / SessionTokenFileName;
+}
+
+FString UDevNoteSubsystem::LoadSessionToken() const
+{
+	FString Token;
+	FFileHelper::LoadFileToString(Token, *GetSessionTokenFilePath());
+	Token.TrimStartAndEndInline();
+	return Token;
+}
+
+void UDevNoteSubsystem::SaveSessionToken(const FString& Token) const
+{
+	FFileHelper::SaveStringToFile(Token, *GetSessionTokenFilePath());
+}
+
+void UDevNoteSubsystem::DeleteSessionToken() const
+{
+	IFileManager::Get().Delete(*GetSessionTokenFilePath());
+}
+
+void UDevNoteSubsystem::SignIn(const FString& UserName, const FString& Password,
+	TFunction<void(bool bSuccess, const FString& Error)> Completion)
+{
+	// Prepare JSON payload
+	TSharedRef<FJsonObject> RequestObj = MakeShared<FJsonObject>();
+	RequestObj->SetStringField(TEXT("UserName"), UserName);
+	RequestObj->SetStringField(TEXT("Password"), Password);
+	
+	FString Body;
+	TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Body);
+	FJsonSerializer::Serialize(RequestObj, Writer);
+
+	// Create HTTP request
+	TSharedRef<IHttpRequest, ESPMode::ThreadSafe> HttpRequest = FHttpModule::Get().CreateRequest();
+	HttpRequest->SetURL(GetServerAddress() + TEXT("/signin"));
+	HttpRequest->SetVerb(TEXT("POST"));
+	HttpRequest->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
+	HttpRequest->SetContentAsString(Body);
+
+	// Response handler
+	HttpRequest->OnProcessRequestComplete().BindLambda(
+		[this, Completion](FHttpRequestPtr Req, FHttpResponsePtr Response, bool bWasSuccessful)
+		{
+			if (bWasSuccessful && Response.IsValid() && Response->GetResponseCode() == 200)
+			{
+				TSharedPtr<FJsonObject> JsonObj;
+				const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Response->GetContentAsString());
+				if (FJsonSerializer::Deserialize(Reader, JsonObj) && JsonObj.IsValid() && JsonObj->HasField(TEXT("token")))
+				{
+					FString Token = JsonObj->GetStringField(TEXT("token"));
+					SaveSessionToken(Token);
+					SessionToken = Token;
+					if (Completion) Completion(true, {});
+					return;
+				}
+			}
+			if (Completion)
+			{
+				FString Err = (Response.IsValid() ? FString::Printf(TEXT("Sign in failed: %s"), *Response->GetContentAsString()) : TEXT("No server response"));
+				Completion(false, Err);
+			}
+		});
+	HttpRequest->ProcessRequest();
+
+}
+
+bool UDevNoteSubsystem::TryAutoSignIn()
+{
+	FString Token = LoadSessionToken();
+	if (Token.IsEmpty())
+	{
+		return false;
+	}
+
+	
+	// Create the HTTP request
+	TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
+	Request->SetURL(GetServerAddress() + "/validatetoken");
+	Request->SetVerb(TEXT("POST"));
+	Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
+
+	// The endpoint expects a raw JSON string; wrap the token in quotes
+	FString TokenBody = FString::Printf(TEXT("\"%s\""), *Token);
+	Request->SetContentAsString(TokenBody);
+
+	// Bind the response lambda
+	Request->OnProcessRequestComplete().BindLambda(
+		[this, Token](FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse, bool bWasSuccessful)
+		{
+			if (bWasSuccessful && HttpResponse.IsValid())
+			{
+				if (HttpResponse->GetResponseCode() == 200)
+				{
+					// Token valid, optionally parse user info if you desire
+					SessionToken = Token;
+					// Broadcast login status or notify UI here if needed
+				}
+				else
+				{
+					// Token invalid or expired, clear session and prompt for login
+					SessionToken = FString();
+					DeleteSessionToken();
+					// Optionally process error string: HttpResponse->GetContentAsString()
+				}
+			}
+			else
+			{
+				// Request failed, treat as not logged in
+				SessionToken = FString();
+				DeleteSessionToken();
+			}
+
+			// Optionally notify UI or listeners of login status change here
+		});
+
+	Request->ProcessRequest();
+
+	// Return true, as we tried to use an auto-login token (async result will arrive in the future)
+	return true;
+}
+
+void UDevNoteSubsystem::SignOut(TFunction<void(bool)> Completion)
+{
+	if (SessionToken.IsEmpty())
+	{
+		DeleteSessionToken();
+		if (Completion)
+			Completion(true);
+		return;
+	}
+
+	// Create HTTP request
+	TSharedRef<IHttpRequest, ESPMode::ThreadSafe> HttpRequest = FHttpModule::Get().CreateRequest();
+	HttpRequest->SetURL(GetServerAddress() + TEXT("/signout"));
+	HttpRequest->SetVerb(TEXT("POST"));
+	HttpRequest->SetHeader(TEXT("X-Session-Token"), *SessionToken);
+	
+	FString TokenBody = FString::Printf(TEXT("\"%s\""), *SessionToken);
+	HttpRequest->SetContentAsString(TokenBody);
+	
+	HttpRequest->OnProcessRequestComplete().BindLambda(
+		[this, Completion](FHttpRequestPtr Req, FHttpResponsePtr Response, bool bWasSuccessful)
+		{
+			DeleteSessionToken();
+			SessionToken.Reset();
+			if (Completion)
+			{
+				Completion(bWasSuccessful && Response.IsValid() && Response->GetResponseCode() == 200);
+			}
+		});
+	HttpRequest->ProcessRequest();
 }
 
 
@@ -631,6 +799,7 @@ void UDevNoteSubsystem::PostTag(FDevNoteTag NoteTag)
 	Request->SetURL(GetServerAddress() + "/tags");
 	Request->SetVerb("POST");
 	Request->SetHeader("Content-Type", "application/json");
+	Request->SetHeader(TEXT("X-Session-Token"), *SessionToken);
 	
 	TSharedPtr<FJsonObject> JsonObject = ConvertTagToJsonObject(NoteTag);
 	FString OutputString;

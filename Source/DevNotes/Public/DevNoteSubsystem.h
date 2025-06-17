@@ -69,6 +69,8 @@ public:
 
 
 	static UDevNoteSubsystem* Get();
+	bool TryAutoSignIn();
+
 private:
 	bool bIsEditorEditing = false;
 	bool bRefreshPendingWhileEditing = false;
@@ -76,16 +78,28 @@ private:
 	TArray<TSharedPtr<FDevNote>> CachedNotes;
 	TArray<FDevNoteTag> CachedTags;
 
-
+	FString SessionToken;
+	
 	UPROPERTY()
 	TSet<FGuid> SelectedNoteIDsBeforeRefresh;
-
-
 	
 	void ParseNotesFromJson(const FString& JsonString);
 	void HandleNotesResponse(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful);
 
 	TSet<FString> GetLoadedLevelPaths();
 	FString GetServerAddress() const;
+
+	const FString SessionTokenFileName = TEXT("DevNotes/session.token");
+	FString GetSessionTokenFilePath() const;
+	FString LoadSessionToken() const;
+	void SaveSessionToken(const FString& Token) const;
+	void DeleteSessionToken() const;
+
+public:
+	void SignIn(const FString& UserName, const FString& Password, 
+	            TFunction<void(bool bSuccess, const FString& Error)> Completion);
+
+
+	void SignOut(TFunction<void(bool)> Completion);
 };
 
