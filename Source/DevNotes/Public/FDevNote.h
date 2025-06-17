@@ -30,4 +30,7 @@ struct FDevNote
 	
 	UPROPERTY(BlueprintReadOnly)
 	FVector WorldPosition;
+
+	UPROPERTY(BlueprintReadOnly)
+	TArray<FGuid> Tags;
 };

@@ -9,11 +9,13 @@
 #include "GameFramework/Actor.h"
 #include "Editor/EditorEngine.h"
 #include "DevNoteActor.h"
+#include "FDevNoteTag.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Misc/MessageDialog.h"
 #include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/Input/SComboBox.h"
 #include "PropertyCustomizationHelpers.h"
+#include "SDevNoteTagPicker.h"
 #include "Containers/Array.h"
 
 
@@ -37,6 +39,21 @@ void SDevNoteEditor::Construct(const FArguments& InArgs)
     TitleText = SelectedNote.IsValid() ? SelectedNote->Title : FString();
     BodyText = SelectedNote.IsValid() ? SelectedNote->Body : FString();
 
+    // Prepare tags list from subsystem
+    TagsList.Empty();
+    if (GEditor)
+    {
+        if (UDevNoteSubsystem* Subsystem = GEditor->GetEditorSubsystem<UDevNoteSubsystem>())
+        {
+            const TArray<FDevNoteTag>& TagArray = Subsystem->GetCachedTags();
+            for (const auto& NoteTag : TagArray)
+            {
+                TagsList.Add(MakeShared<FDevNoteTag>(NoteTag));
+            }
+        }
+    }
+
+    
     ChildSlot
     [
         SNew(SVerticalBox)
@@ -91,6 +108,21 @@ void SDevNoteEditor::Construct(const FArguments& InArgs)
                        
         ]
 
+        
+        // Tag selector
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        [
+            SNew(SDevNoteTagPicker)
+                .AvailableTags(&TagsList)
+                .SelectedTagIds(SelectedNote.IsValid() ? &SelectedNote->Tags : nullptr)
+                .OnSelectionChanged(this, &SDevNoteEditor::OnTagSelectionChanged)
+                .OnNewTagCreated(this, &SDevNoteEditor::OnNewTagCreated)
+                // ...rest of note editing form...
+
+        ]
+        
+        
         // Details
         + SVerticalBox::Slot()
         .AutoHeight()
@@ -287,3 +319,19 @@ void SDevNoteEditor::SetSelectedNote(TSharedPtr<FDevNote> InNote)
         this->Invalidate(EInvalidateWidget::LayoutAndVolatility);
     }
 }
+
+void SDevNoteEditor::OnTagSelectionChanged(const TArray<FGuid>& Guids)
+{
+    if (SelectedNote.IsValid())
+    {
+        SelectedNote->Tags = Guids;
+        UDevNoteSubsystem::Get()->UpdateNote(*SelectedNote);
+    }
+}
+
+void SDevNoteEditor::OnNewTagCreated(const FDevNoteTag& DevNoteTag)
+{
+    UDevNoteSubsystem* Subsystem = UDevNoteSubsystem::Get();
+    Subsystem->PostTag(DevNoteTag);
+}
+

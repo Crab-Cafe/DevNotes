@@ -50,7 +50,8 @@ public class DevNotes : ModuleRules
 				"EditorSubsystem",
 				"PropertyEditor",
 				"LevelEditor", 
-				"HTTPServer"
+				"HTTPServer", 
+				"AppFramework"
 
 				// ... add private dependencies that you statically link with here ...	
 			}

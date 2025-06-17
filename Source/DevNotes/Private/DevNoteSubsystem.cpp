@@ -5,6 +5,7 @@
 
 #include "DevNotesLog.h"
 #include "EngineUtils.h"
+#include "FDevNoteTag.h"
 #include "FileHelpers.h"
 #include "HttpModule.h"
 #include "HttpServerConstants.h"
@@ -82,7 +83,7 @@ void UDevNoteSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 		30.0f,
 		true
 	);
-
+	RequestTagsFromServer();
 }
 
 void UDevNoteSubsystem::RequestNotesFromServer()
@@ -308,6 +309,22 @@ bool UDevNoteSubsystem::ParseNoteFromJsonObject(const TSharedPtr<FJsonObject>& J
 	JsonObj->TryGetStringField(TEXT("lastEdited"), lastEditedString);
 	FDateTime::ParseIso8601(*lastEditedString, OutNote.LastEdited);
 
+	OutNote.Tags.Empty();
+	const TArray<TSharedPtr<FJsonValue>>* TagIdsArray;
+	if (JsonObj->TryGetArrayField(TEXT("tags"), TagIdsArray))
+	{
+		for (const TSharedPtr<FJsonValue>& Val : *TagIdsArray)
+		{
+			FString TagIdStr = Val->AsObject()->GetStringField("id");
+			FGuid Guid;
+			if (FGuid::Parse(TagIdStr, Guid))
+			{
+				OutNote.Tags.Add(Guid);
+			}
+		}
+	}
+
+
 	return true;
 }
 
@@ -328,8 +345,52 @@ TSharedPtr<FJsonObject> UDevNoteSubsystem::ConvertNoteToJsonObject(const FDevNot
 	JsonObject->SetStringField(TEXT("createdAt"), Note.CreatedAt.ToIso8601());
 	JsonObject->SetStringField(TEXT("lastEdited"), FDateTime::UtcNow().ToIso8601());
 
+	TArray<TSharedPtr<FJsonValue>> TagIdsArray;
+	for (const FGuid& TagId : Note.Tags)
+	{
+		TSharedPtr<FJsonObject> tagObj = MakeShared<FJsonObject>();
+		tagObj->SetStringField(TEXT("id"), TagId.ToString(EGuidFormats::DigitsWithHyphens));
 
+		TSharedPtr<FJsonValueObject> val = MakeShared<FJsonValueObject>(tagObj);
+		TagIdsArray.Add(val);
+	}
+	
+	JsonObject->SetArrayField(TEXT("tags"), TagIdsArray);
+	
 	return JsonObject;
+}
+
+TSharedPtr<FJsonObject> UDevNoteSubsystem::ConvertTagToJsonObject(const FDevNoteTag& Tag)
+{
+	TSharedPtr<FJsonObject> JsonObject = MakeShared<FJsonObject>();
+	JsonObject->SetStringField(TEXT("id"), Tag.Id.ToString(EGuidFormats::DigitsWithHyphens));
+	JsonObject->SetStringField(TEXT("name"), Tag.Name);
+	JsonObject->SetNumberField(TEXT("color"), Tag.Colour);
+	return JsonObject;
+
+}
+
+bool UDevNoteSubsystem::ParseTagFromJsonObject(const TSharedPtr<FJsonObject>& JsonObj,
+	FDevNoteTag& OutTag)
+{
+	if (!JsonObj.IsValid())
+	{
+		return false;
+	}
+
+	// Extract required fields safely
+	FString idString;
+	FString nameString;
+	int colour = 0;
+
+	JsonObj->TryGetStringField(TEXT("id"), idString);
+	JsonObj->TryGetStringField(TEXT("name"), nameString);
+	JsonObj->TryGetNumberField(TEXT("color"), colour);
+
+	OutTag.Id = FGuid(idString);
+	OutTag.Name = nameString;
+	OutTag.Colour = colour;
+	return true;
 }
 
 FString UDevNoteSubsystem::SerializeNoteToJsonString(const FDevNote& Note)
@@ -362,6 +423,44 @@ void UDevNoteSubsystem::SetEditorEditingState(bool bEditing)
 		bRefreshPendingWhileEditing = false;
 		RequestNotesFromServer();
 	}
+}
+
+void UDevNoteSubsystem::HandleTagsResponse(TSharedPtr<IHttpRequest> HttpRequest, TSharedPtr<IHttpResponse> HttpResponse,
+	bool bWasSuccessful)
+{
+	CachedTags.Empty();
+	
+	if (bWasSuccessful && HttpResponse->GetResponseCode() == 200)
+	{
+		FString ResponseString = HttpResponse->GetContentAsString();
+		TArray<TSharedPtr<FJsonValue>> JsonArray;
+		TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(ResponseString);
+		if (FJsonSerializer::Deserialize(Reader, JsonArray))
+		{
+			for (const auto& Item : JsonArray)
+			{
+				FDevNoteTag Tag;
+				if (ParseTagFromJsonObject(Item->AsObject(), Tag))
+				{
+					CachedTags.Add(Tag);
+				}
+			}
+		}
+	}
+
+}
+
+void UDevNoteSubsystem::RequestTagsFromServer()
+{
+	FHttpModule* Http = &FHttpModule::Get();
+	TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = Http->CreateRequest();
+
+	Request->OnProcessRequestComplete().BindUObject(this, &UDevNoteSubsystem::HandleTagsResponse);
+	Request->SetURL(GetServerAddress() + TEXT("/tags"));
+	Request->SetVerb("GET");
+	Request->SetHeader("Content-Type", "application/json");
+	Request->ProcessRequest();
+
 }
 
 UDevNoteSubsystem* UDevNoteSubsystem::Get()
@@ -523,4 +622,30 @@ void UDevNoteSubsystem::StoreSelectedNoteIDs()
 			SelectedNoteIDsBeforeRefresh.Add(Note->Id);
 		}
 	}
+}
+
+void UDevNoteSubsystem::PostTag(FDevNoteTag NoteTag)
+{
+	FHttpModule* Http = &FHttpModule::Get();
+	TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = Http->CreateRequest();
+	Request->SetURL(GetServerAddress() + "/tags");
+	Request->SetVerb("POST");
+	Request->SetHeader("Content-Type", "application/json");
+	
+	TSharedPtr<FJsonObject> JsonObject = ConvertTagToJsonObject(NoteTag);
+	FString OutputString;
+	TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);
+	FJsonSerializer::Serialize(JsonObject.ToSharedRef(), Writer);
+	
+	Request->SetContentAsString(OutputString);
+	Request->OnProcessRequestComplete().BindLambda([this](FHttpRequestPtr Req, FHttpResponsePtr Response, bool bSuccess)
+	{
+		if (bSuccess && Response->GetResponseCode() == 201)
+		{
+			UE_LOG(LogDevNotes, Log, TEXT("Tag created successfully."));
+		}
+	}
+	);
+
+	Request->ProcessRequest();
 }

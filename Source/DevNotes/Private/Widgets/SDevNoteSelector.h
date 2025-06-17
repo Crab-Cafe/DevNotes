@@ -22,8 +22,15 @@ void Construct(const FArguments& InArgs);
 	void SetSelectedNote(const TSharedPtr<FDevNote>& InNote);
 private:
 	TArray<TSharedPtr<FDevNote>> Notes;
+	TArray<TSharedPtr<FDevNote>> FilteredNotes;
+
 	TSharedPtr<SListView<TSharedPtr<FDevNote>>> NotesListView;
 	FOnDevNoteSelected NoteSelectedDelegate;
+
+	FText SearchText;
+	
+	void OnSearchTextChanged(const FText& Text);
+	void ParseAndApplyFilters();
 
 	TSharedRef<ITableRow> OnGenerateNoteRow(TSharedPtr<FDevNote>, const TSharedRef<STableViewBase>&);
 	FReply OnRefreshClicked();

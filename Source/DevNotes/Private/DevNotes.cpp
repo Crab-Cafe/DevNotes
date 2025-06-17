@@ -44,7 +44,7 @@ void FDevNotesModule::StartupModule()
 
 void FDevNotesModule::RegisterMenus()
 {
-
+	
 	FToolMenuOwnerScoped OwnerScoped(this);
 
 	UToolMenu* ToolbarMenu = UToolMenus::Get()->ExtendMenu("LevelEditor.LevelEditorToolBar.User");

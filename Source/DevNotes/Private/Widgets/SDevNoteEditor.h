@@ -3,6 +3,7 @@
 #include "Widgets/SCompoundWidget.h"
 #include "FDevNote.h"
 
+struct FDevNoteTag;
 class UDevNoteSubsystem;
 
 class SDevNoteEditor : public SCompoundWidget
@@ -17,8 +18,14 @@ public:
 	void Construct(const FArguments& InArgs);
 	void SetSelectedNote(TSharedPtr<FDevNote> InNote);
 
+	void OnTagSelectionChanged(const TArray<FGuid>& Guids);
+	void OnNewTagCreated(const FDevNoteTag& DevNoteTag);
+
+
 private:
 	TSharedPtr<FDevNote> SelectedNote;
 	FString TitleText;
 	FString BodyText;
+	
+	TArray<TSharedPtr<FDevNoteTag>> TagsList;
 };

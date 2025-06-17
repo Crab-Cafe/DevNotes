@@ -2,14 +2,17 @@
 #pragma once
 #include "FDevNoteTag.generated.h"
 
-USTRUCT()
-struct DEVNOTES_API FDevNoteTag : public FTableRowBase
+USTRUCT(BlueprintType)
+struct FDevNoteTag
 {
 	GENERATED_BODY()
 
-	UPROPERTY()
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FGuid Id;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FString Name;
 
-	UPROPERTY()
-	FColor Color;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	int32 Colour = 0;
 };

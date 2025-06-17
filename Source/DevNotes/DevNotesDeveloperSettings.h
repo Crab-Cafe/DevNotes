@@ -10,15 +10,15 @@
 /**
  * 
  */
-UCLASS(Config="DevNotes", DefaultConfig)
+UCLASS(Config="DevNotes", DefaultConfig, meta=(DisplayName="DevNotes Settings"), Category="Plugins")
 class DEVNOTES_API UDevNotesDeveloperSettings : public UDeveloperSettings
 {
 	GENERATED_BODY()
 
 public:
 	UPROPERTY(Config, EditDefaultsOnly)
-	FString ServerAddress;
+	FString ServerAddress = "http://localhost/7124";
 
 	UPROPERTY(Config, EditDefaultsOnly)
-	TSoftClassPtr<ADevNoteActor> DevNoteActorRepresentation;
+	TSoftClassPtr<ADevNoteActor> DevNoteActorRepresentation = ADevNoteActor::StaticClass();
 };

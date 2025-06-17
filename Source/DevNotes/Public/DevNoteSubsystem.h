@@ -12,8 +12,10 @@
  * 
  */
 
+struct FDevNoteTag;
 class ADevNoteActor;
 DECLARE_MULTICAST_DELEGATE(FOnNotesUpdated);
+DECLARE_MULTICAST_DELEGATE(FOnTagsUpdated);
 
 UCLASS()
 class DEVNOTES_API UDevNoteSubsystem : public UEditorSubsystem, public FTickableEditorObject
@@ -44,16 +46,26 @@ public:
 	void RefreshWaypointActors();
 	TArray<TSharedPtr<FDevNote>> GetSelectedNotes();
 	void StoreSelectedNoteIDs();
+	void PostTag(FDevNoteTag NoteTag);
 
 	FOnNotesUpdated OnNotesUpdated;
+	FOnTagsUpdated OnTagsUpdated;
 	FTimerHandle RefreshNotesTimerHandle;
 
 	static bool ParseNoteFromJsonObject(const TSharedPtr<FJsonObject>& JsonObj, FDevNote& OutNote);
 	static TSharedPtr<FJsonObject> ConvertNoteToJsonObject(const FDevNote& Note);
 	static FString SerializeNoteToJsonString(const FDevNote& Note);
+
+	static TSharedPtr<FJsonObject> ConvertTagToJsonObject(const FDevNoteTag& Tag);
+	static bool ParseTagFromJsonObject(const TSharedPtr<FJsonObject>& JsonObj, FDevNoteTag& OutTag);
+
 	
 	void CreateNewNoteAtEditorLocation();
 	void SetEditorEditingState(bool bEditing);
+
+	void HandleTagsResponse(TSharedPtr<IHttpRequest> HttpRequest, TSharedPtr<IHttpResponse> HttpResponse, bool bArg);
+	void RequestTagsFromServer();
+	const TArray<FDevNoteTag>& GetCachedTags() const { return CachedTags; }
 
 
 	static UDevNoteSubsystem* Get();
@@ -62,6 +74,8 @@ private:
 	bool bRefreshPendingWhileEditing = false;
 
 	TArray<TSharedPtr<FDevNote>> CachedNotes;
+	TArray<FDevNoteTag> CachedTags;
+
 
 	UPROPERTY()
 	TSet<FGuid> SelectedNoteIDsBeforeRefresh;

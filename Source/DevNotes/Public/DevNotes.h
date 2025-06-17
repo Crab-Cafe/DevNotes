@@ -18,7 +18,7 @@ public:
 
 
 private:
+	TSharedPtr<SButton> ToolButton;
 	TSharedRef<SWidget> GenerateNotesDropdown();
 	void RegisterMenus();
-
 };
