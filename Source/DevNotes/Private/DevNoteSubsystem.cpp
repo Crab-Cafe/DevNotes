@@ -531,6 +531,7 @@ void UDevNoteSubsystem::HandleTagsResponse(TSharedPtr<IHttpRequest> HttpRequest,
 			}
 		}
 	}
+	OnTagsUpdated.Broadcast();
 
 }
 

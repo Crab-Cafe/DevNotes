@@ -2,6 +2,7 @@
 #include "CoreMinimal.h"
 #include "Widgets/SCompoundWidget.h"
 #include "FDevNote.h"
+#include "SDevNoteTagPicker.h"
 
 struct FDevNoteTag;
 class UDevNoteSubsystem;
@@ -15,12 +16,9 @@ public:
 
 	FString GetLevelPath() const;
 	void OnLevelPathChanged(const FAssetData& AssetData);
+	void OnTagPickerOpened();
 	void Construct(const FArguments& InArgs);
 	void SetSelectedNote(TSharedPtr<FDevNote> InNote);
-
-	void OnTagSelectionChanged(const TArray<FGuid>& Guids);
-	void OnNewTagCreated(const FDevNoteTag& DevNoteTag);
-
 
 private:
 	TSharedPtr<FDevNote> SelectedNote;
@@ -28,4 +26,11 @@ private:
 	FString BodyText;
 	
 	TArray<TSharedPtr<FDevNoteTag>> TagsList;
+	TSharedPtr<SDevNoteTagPicker> TagPicker;
+    
+	// Tag-related methods
+	void RefreshTagsList();
+	void OnTagSelectionChanged(const TArray<FGuid>& NewTagIds);
+	void OnNewTagCreated(const FDevNoteTag& NewTag);
+
 };

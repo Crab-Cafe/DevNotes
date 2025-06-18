@@ -2,58 +2,81 @@
 
 #include "CoreMinimal.h"
 #include "Widgets/SCompoundWidget.h"
-#include "FDevNoteTag.h"
+#include "Widgets/Input/SMenuAnchor.h"
+#include "Widgets/Views/SListView.h"
+#include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/Colors/SColorBlock.h"
+#include "FDevNoteTag.h"
 
-// Delegate: Called when selection changes (returns list of selected tag IDs)
-DECLARE_DELEGATE_OneParam(FOnTagSelectionChanged, const TArray<FGuid>&)
-// Delegate: Called when a new tag is created
-DECLARE_DELEGATE_OneParam(FOnNewTagCreated, const FDevNoteTag&)
+DECLARE_DELEGATE_OneParam(FOnTagSelectionChanged, const TArray<FGuid>&);
+DECLARE_DELEGATE_OneParam(FOnNewTagCreated, const FDevNoteTag&);
+DECLARE_DELEGATE(FOnOpened);
 
-class SDevNoteTagPicker : public SCompoundWidget
+
+class DEVNOTES_API SDevNoteTagPicker : public SCompoundWidget
 {
 public:
-    SLATE_BEGIN_ARGS(SDevNoteTagPicker) {}
-    SLATE_ARGUMENT(TArray<TSharedPtr<FDevNoteTag>>*, AvailableTags)
-    SLATE_ARGUMENT(TArray<FGuid>*, SelectedTagIds)
-    SLATE_EVENT(FOnTagSelectionChanged, OnSelectionChanged)
-    SLATE_EVENT(FOnNewTagCreated, OnNewTagCreated)
-SLATE_END_ARGS()
+    SLATE_BEGIN_ARGS(SDevNoteTagPicker)
+        : _AvailableTags(nullptr)
+        , _SelectedTagIds(nullptr)
+    {}
+        SLATE_ARGUMENT(TArray<TSharedPtr<FDevNoteTag>>*, AvailableTags)
+        SLATE_ARGUMENT(TArray<FGuid>*, SelectedTagIds)
+        SLATE_EVENT(FOnTagSelectionChanged, OnSelectionChanged)
+        SLATE_EVENT(FOnNewTagCreated, OnNewTagCreated)
+        SLATE_EVENT(FOnOpened, OnTagListOpened)
+    SLATE_END_ARGS()
 
-void Construct(const FArguments& InArgs);
+    void Construct(const FArguments& InArgs);
+    virtual ~SDevNoteTagPicker() override;
+    
+    void RefreshTagsList();
+    void UpdateSelectedTags();
+    void SetSelectedTagIDs(TArray<FGuid>* TagsArray)
+    {
+        SelectedTagIds = TagsArray;
+    };
 
 private:
-    // References provided by parent
+    // UI Event Handlers
+    FReply OnTagButtonClicked();
+    TSharedRef<SWidget> GenerateTagDropdown();
+    void OnMenuOpenChanged(bool bIsOpen);
+    void OnFocusChanging(const FFocusEvent& InFocusEvent, const FWeakWidgetPath& InOldFocusedWidgetPath, const TSharedPtr<SWidget>& InOldFocusedWidget, const FWidgetPath& InNewWidgetPath, const TSharedPtr<SWidget>& InNewFocusedWidget);  // Add this
+    TSharedRef<ITableRow> GenerateTagRow(TSharedPtr<FDevNoteTag> InTag, const TSharedRef<STableViewBase>& OwnerTable);
+    void OnTagSelectionChangedInternal(TSharedPtr<FDevNoteTag> SelectedItem, ESelectInfo::Type SelectInfo);
+    
+    // Tag Creation
+    FReply OnAddNewTagClicked();
+    void OnNewTagNameChanged(const FText& NewText);
+    void OnColorPickerClosed(FLinearColor NewColor);
+    
+    // Display Methods
+    FText GetSelectedTagsText() const;
+    FText GetNewTagNameText() const;
+    FLinearColor GetPendingTagColor() const;
+    bool IsNewTagValid() const;
+    
+private:
+    // Data
     TArray<TSharedPtr<FDevNoteTag>>* TagsList = nullptr;
     TArray<FGuid>* SelectedTagIds = nullptr;
-
     FOnTagSelectionChanged OnSelectionChanged;
     FOnNewTagCreated OnNewTagCreated;
-
+    FOnOpened OnTagListOpened;
+    
+    // UI Components
     TSharedPtr<SMenuAnchor> TagPickerAnchor;
     TSharedPtr<SListView<TSharedPtr<FDevNoteTag>>> TagListView;
     TSharedPtr<SEditableTextBox> NewTagNameBox;
-    FString NewTagName;
-    int32 NewTagColor = 0;
-
-    FLinearColor PendingTagColor = FLinearColor::White; // or any default
     TSharedPtr<SColorBlock> ColorBlockWidget;
-
-    FLinearColor GetPendingTagColor() const { return PendingTagColor; }
-
-    FReply OnTagButtonClicked();
-    TSharedRef<SWidget> GenerateTagDropdown();
-
-    // Tag list
-    TSharedRef<ITableRow> GenerateTagRow(TSharedPtr<FDevNoteTag>, const TSharedRef<STableViewBase>&);
-    void OnTagSelectionChangedInternal(TSharedPtr<FDevNoteTag>, ESelectInfo::Type);
-    FText GetSelectedTagsText() const;
-
-    // New tag controls
-    FText GetNewTagNameText() const;
-    void OnNewTagNameChanged(const FText&);
-    FText GetNewTagColorText() const;
-    void OnNewTagColorChanged(const FText&);
-    bool IsNewTagValid() const;
-    FReply OnAddNewTagClicked();
+    TSharedPtr<SWidget> MenuContentWidget;
+    
+    // New Tag State
+    FString NewTagName;
+    FLinearColor PendingTagColor = FLinearColor::Blue;
+    
+    // Internal state tracking
+    bool bUpdatingSelection = false;
+    FDelegateHandle OutsideClickHandle;
 };

@@ -1,5 +1,7 @@
 ﻿#include "SDevNoteSelector.h"
 
+#include "DevNoteSubsystem.h"
+#include "FDevNoteTag.h"
 #include "StructUtils/PropertyBag.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Views/SListView.h"
@@ -48,6 +50,8 @@ void SDevNoteSelector::ParseAndApplyFilters()
     TArray<FString> Tokens;
     ParseSearchStringWithQuotes(SearchText.ToString(), Tokens);
 
+    auto tags = UDevNoteSubsystem::Get()->GetCachedTags();
+    
     for (const FString& Token : Tokens)
     {
         FString Key, Value;
@@ -80,21 +84,21 @@ void SDevNoteSelector::ParseAndApplyFilters()
             }
             if (!bAny) { bPass = false; }
         }
-        // User (if you have it)
-        /*
+        
+        // User
         if (FieldFilters.Contains("user"))
         {
             bool bAny = false;
             for (const FString& Val : FieldFilters["user"])
             {
-                if (Note->User.Contains(Val, ESearchCase::IgnoreCase))
+                if (Note->CreatedById.ToString().Contains(Val, ESearchCase::IgnoreCase))
                 {
                     bAny = true; break;
                 }
             }
             if (!bAny) { bPass = false; }
         }
-        */
+        
         // Map
         if (FieldFilters.Contains("map"))
         {
@@ -108,22 +112,25 @@ void SDevNoteSelector::ParseAndApplyFilters()
             }
             if (!bAny) { bPass = false; }
         }
+        
         // Tag
-        /*
         if (FieldFilters.Contains("tag"))
         {
             bool bAny = false;
             for (const FString& Val : FieldFilters["tag"])
             {
-                if (Note->Tags.Contains(Val, ESearchCase::IgnoreCase))
+                auto& noteTags = Note->Tags;
+                if (auto foundTag = tags.FindByPredicate([&noteTags](const FDevNoteTag& arrTag){return noteTags.Contains(arrTag.Id);}))
                 {
-                    bAny = true; break;
+                    if (foundTag->Name.Contains(Val, ESearchCase::IgnoreCase))
+                    {
+                        bAny = true; break;
+                    }
                 }
             }
             if (!bAny) { bPass = false; }
         }
-        */
-        // Date if you want (similar style)
+        
 
         // Generic Terms: OR logic
         if (bPass && GenericTerms.Num() > 0)
@@ -136,6 +143,13 @@ void SDevNoteSelector::ParseAndApplyFilters()
                 {
                     bAnyGeneric = true;
                     break;
+                }
+                if (auto foundTag = tags.FindByPredicate([&Note](const FDevNoteTag& arrTag){return Note->Tags.Contains(arrTag.Id);}))
+                {
+                    if (foundTag->Name.Contains(Term, ESearchCase::IgnoreCase))
+                    {
+                        bAnyGeneric = true; break;
+                    }
                 }
             }
             if (!bAnyGeneric) { bPass = false; }

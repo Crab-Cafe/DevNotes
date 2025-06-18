@@ -22,6 +22,7 @@ void SDevNotesDropdownWidget::RefreshNotes()
 		if (UDevNoteSubsystem* Subsystem = GEditor->GetEditorSubsystem<UDevNoteSubsystem>())
 		{
 			Subsystem->RequestNotesFromServer();
+			Subsystem->RequestTagsFromServer();
 		}
 	}
 }

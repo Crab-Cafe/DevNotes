@@ -32,6 +32,11 @@ void SDevNoteEditor::OnLevelPathChanged(const FAssetData& AssetData)
     UDevNoteSubsystem::Get()->UpdateNote(*SelectedNote);
 }
 
+void SDevNoteEditor::OnTagPickerOpened()
+{
+    UDevNoteSubsystem::Get()->RequestTagsFromServer();
+}
+
 void SDevNoteEditor::Construct(const FArguments& InArgs)
 {
     SelectedNote = InArgs._SelectedNote;
@@ -39,20 +44,10 @@ void SDevNoteEditor::Construct(const FArguments& InArgs)
     TitleText = SelectedNote.IsValid() ? SelectedNote->Title : FString();
     BodyText = SelectedNote.IsValid() ? SelectedNote->Body : FString();
 
-    // Prepare tags list from subsystem
-    TagsList.Empty();
-    if (GEditor)
-    {
-        if (UDevNoteSubsystem* Subsystem = GEditor->GetEditorSubsystem<UDevNoteSubsystem>())
-        {
-            const TArray<FDevNoteTag>& TagArray = Subsystem->GetCachedTags();
-            for (const auto& NoteTag : TagArray)
-            {
-                TagsList.Add(MakeShared<FDevNoteTag>(NoteTag));
-            }
-        }
-    }
+    // Initialize tags list
+    RefreshTagsList();
 
+    UDevNoteSubsystem::Get()->OnTagsUpdated.AddSP(SharedThis(this), &SDevNoteEditor::RefreshTagsList);
     
     ChildSlot
     [
@@ -71,7 +66,6 @@ void SDevNoteEditor::Construct(const FArguments& InArgs)
             .OnTextChanged_Lambda([this](const FText& NewText) {
                 TitleText = NewText.ToString();
                 UDevNoteSubsystem::Get()->SetEditorEditingState(true);
-
             })
             .IsEnabled_Lambda([this]() -> bool {
                 return SelectedNote.IsValid();
@@ -95,33 +89,34 @@ void SDevNoteEditor::Construct(const FArguments& InArgs)
         // Level Picker
         + SVerticalBox::Slot()
         .AutoHeight()
+        .Padding(FMargin(0, 0, 0, 6))
         [
-        SNew(SObjectPropertyEntryBox)
-            .AllowedClass(UWorld::StaticClass())
-            .ObjectPath(this, &SDevNoteEditor::GetLevelPath)
-            .OnObjectChanged(this, &SDevNoteEditor::OnLevelPathChanged)
-            .AllowClear(true)
-            .DisplayUseSelected(true)
-            .IsEnabled_Lambda([this]() -> bool {
-                 return SelectedNote.IsValid();
-             })
-                       
+            SNew(SObjectPropertyEntryBox)
+                .AllowedClass(UWorld::StaticClass())
+                .ObjectPath(this, &SDevNoteEditor::GetLevelPath)
+                .OnObjectChanged(this, &SDevNoteEditor::OnLevelPathChanged)
+                .AllowClear(true)
+                .DisplayUseSelected(true)
+                .IsEnabled_Lambda([this]() -> bool {
+                     return SelectedNote.IsValid();
+                 })
         ]
 
-        
         // Tag selector
         + SVerticalBox::Slot()
         .AutoHeight()
+        .Padding(FMargin(0, 0, 0, 12))
         [
-            SNew(SDevNoteTagPicker)
+            SAssignNew(TagPicker, SDevNoteTagPicker)
                 .AvailableTags(&TagsList)
                 .SelectedTagIds(SelectedNote.IsValid() ? &SelectedNote->Tags : nullptr)
                 .OnSelectionChanged(this, &SDevNoteEditor::OnTagSelectionChanged)
                 .OnNewTagCreated(this, &SDevNoteEditor::OnNewTagCreated)
-                // ...rest of note editing form...
-
+                .OnTagListOpened(this, &SDevNoteEditor::OnTagPickerOpened)
+                .IsEnabled_Lambda([this]() -> bool {
+                    return SelectedNote.IsValid();
+                })  
         ]
-        
         
         // Details
         + SVerticalBox::Slot()
@@ -314,24 +309,59 @@ void SDevNoteEditor::SetSelectedNote(TSharedPtr<FDevNote> InNote)
     TitleText = SelectedNote.IsValid() ? SelectedNote->Title : FString();
     BodyText = SelectedNote.IsValid() ? SelectedNote->Body : FString();
 
+    // Update tag picker with new note's tags
+    if (TagPicker.IsValid())
+    {
+        TagPicker->UpdateSelectedTags();
+        TagPicker->SetSelectedTagIDs(SelectedNote.IsValid() ? &SelectedNote->Tags : nullptr);
+    }
+
     if (this->IsConstructed())
     {
         this->Invalidate(EInvalidateWidget::LayoutAndVolatility);
     }
 }
 
-void SDevNoteEditor::OnTagSelectionChanged(const TArray<FGuid>& Guids)
+void SDevNoteEditor::OnTagSelectionChanged(const TArray<FGuid>& NewTagIds)
 {
     if (SelectedNote.IsValid())
     {
-        SelectedNote->Tags = Guids;
-        UDevNoteSubsystem::Get()->UpdateNote(*SelectedNote);
+        SelectedNote->Tags = NewTagIds;
+        
+        if (UDevNoteSubsystem* Subsystem = UDevNoteSubsystem::Get())
+        {
+            Subsystem->UpdateNote(*SelectedNote);
+        }
     }
 }
 
-void SDevNoteEditor::OnNewTagCreated(const FDevNoteTag& DevNoteTag)
+void SDevNoteEditor::OnNewTagCreated(const FDevNoteTag& NewTag)
 {
-    UDevNoteSubsystem* Subsystem = UDevNoteSubsystem::Get();
-    Subsystem->PostTag(DevNoteTag);
+    if (UDevNoteSubsystem* Subsystem = UDevNoteSubsystem::Get())
+    {
+        Subsystem->PostTag(NewTag);
+        
+        // Refresh our local tags list after a short delay to allow server sync
+        FTimerHandle RefreshTimerHandle;
+        GEditor->GetTimerManager()->SetTimer(RefreshTimerHandle, [this]() {
+            RefreshTagsList();
+            if (TagPicker.IsValid())
+            {
+                TagPicker->RefreshTagsList();
+            }
+        }, 0.5f, false);
+    }
 }
 
+void SDevNoteEditor::RefreshTagsList()
+{
+    TagsList.Empty();
+    if (UDevNoteSubsystem* Subsystem = UDevNoteSubsystem::Get())
+    {
+        const TArray<FDevNoteTag>& CachedTags = Subsystem->GetCachedTags();
+        for (const FDevNoteTag& NoteTag : CachedTags)
+        {
+            TagsList.Add(MakeShared<FDevNoteTag>(NoteTag));
+        }
+    }
+}
