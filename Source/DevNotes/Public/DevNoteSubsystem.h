@@ -49,6 +49,8 @@ public:
 	TArray<TSharedPtr<FDevNote>> GetSelectedNotes();
 	void StoreSelectedNoteIDs();
 	void PostTag(FDevNoteTag NoteTag);
+	void DeleteTag(const FGuid& TagId);
+
 
 	FOnNotesUpdated OnNotesUpdated;
 	FOnTagsUpdated OnTagsUpdated;

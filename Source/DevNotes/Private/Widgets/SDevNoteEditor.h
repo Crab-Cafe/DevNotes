@@ -33,4 +33,12 @@ private:
 	void OnTagSelectionChanged(const TArray<FGuid>& NewTagIds);
 	void OnNewTagCreated(const FDevNoteTag& NewTag);
 
+	void OnTagAdded(FGuid TagId) const;
+	void OnTagRemoved(FGuid TagId) const;
+
+	
+	TSharedRef<SWidget> CreateTagDisplay() const;
+	TSharedPtr<SBox> TagDisplayWidget;
+
+
 };

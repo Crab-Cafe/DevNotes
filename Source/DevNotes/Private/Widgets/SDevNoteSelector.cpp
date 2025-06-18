@@ -119,17 +119,26 @@ void SDevNoteSelector::ParseAndApplyFilters()
             bool bAny = false;
             for (const FString& Val : FieldFilters["tag"])
             {
-                auto& noteTags = Note->Tags;
-                if (auto foundTag = tags.FindByPredicate([&noteTags](const FDevNoteTag& arrTag){return noteTags.Contains(arrTag.Id);}))
+                // Check all tags for this note
+                for (const FGuid& NoteTagId : Note->Tags)
                 {
-                    if (foundTag->Name.Contains(Val, ESearchCase::IgnoreCase))
+                    // Find the tag with this ID
+                    if (const FDevNoteTag* FoundTag = tags.FindByPredicate([&NoteTagId](const FDevNoteTag& NoteTag) { 
+                        return NoteTag.Id == NoteTagId; 
+                    }))
                     {
-                        bAny = true; break;
+                        if (FoundTag->Name.Contains(Val, ESearchCase::IgnoreCase))
+                        {
+                            bAny = true;
+                            break;
+                        }
                     }
                 }
+                if (bAny) break; // Exit outer loop if we found a match
             }
             if (!bAny) { bPass = false; }
         }
+
         
 
         // Generic Terms: OR logic
@@ -138,19 +147,29 @@ void SDevNoteSelector::ParseAndApplyFilters()
             bool bAnyGeneric = false;
             for (const FString& Term : GenericTerms)
             {
+                // Check title and level path
                 if (Note->Title.Contains(Term, ESearchCase::IgnoreCase) ||
                     Note->LevelPath.ToString().Contains(Term, ESearchCase::IgnoreCase))
                 {
                     bAnyGeneric = true;
                     break;
                 }
-                if (auto foundTag = tags.FindByPredicate([&Note](const FDevNoteTag& arrTag){return Note->Tags.Contains(arrTag.Id);}))
+                
+                // Check all tags for this note
+                for (const FGuid& NoteTagId : Note->Tags)
                 {
-                    if (foundTag->Name.Contains(Term, ESearchCase::IgnoreCase))
+                    if (const FDevNoteTag* FoundTag = tags.FindByPredicate([&NoteTagId](const FDevNoteTag& NoteTag) { 
+                        return NoteTag.Id == NoteTagId; 
+                    }))
                     {
-                        bAnyGeneric = true; break;
+                        if (FoundTag->Name.Contains(Term, ESearchCase::IgnoreCase))
+                        {
+                            bAnyGeneric = true;
+                            break;
+                        }
                     }
                 }
+                if (bAnyGeneric) break; // Exit outer loop if we found a match
             }
             if (!bAnyGeneric) { bPass = false; }
         }
@@ -159,6 +178,7 @@ void SDevNoteSelector::ParseAndApplyFilters()
         {
             FilteredNotes.Add(Note);
         }
+
     }
 
     if (NotesListView.IsValid())

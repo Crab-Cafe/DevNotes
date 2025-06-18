@@ -161,6 +161,8 @@ void UDevNoteSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 void UDevNoteSubsystem::RequestNotesFromServer()
 {
+	RequestTagsFromServer();
+	
 	FHttpModule* Http = &FHttpModule::Get();
 	TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = Http->CreateRequest();
 	
@@ -965,4 +967,39 @@ void UDevNoteSubsystem::PostTag(FDevNoteTag NoteTag)
 	);
 
 	Request->ProcessRequest();
+}
+
+void UDevNoteSubsystem::DeleteTag(const FGuid& TagId)
+{
+	TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
+	Request->SetURL(GetServerAddress() + "/tags/" + TagId.ToString(EGuidFormats::DigitsWithHyphens));
+	Request->SetVerb("DELETE");
+	Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
+	Request->SetHeader(TEXT("X-Session-Token"), *SessionToken);
+
+	Request->OnProcessRequestComplete().BindLambda([this](FHttpRequestPtr Req, FHttpResponsePtr Response, bool bSuccess)
+	{
+		HandleTokenInvalidation(Response);
+
+		if (bSuccess && (Response->GetResponseCode() == 200 || Response->GetResponseCode() == 204))
+		{
+			UE_LOG(LogDevNotes, Log, TEXT("Tag deleted successfully."));
+			// Refresh tags from server after successful deletion
+			RequestTagsFromServer();
+		}
+		else
+		{
+			if (Response)
+			{
+				UE_LOG(LogDevNotes, Error, TEXT("Failed to delete tag: %s. Error: %d"), *Response->GetContentAsString(), Response->GetResponseCode());
+			}
+			else
+			{
+				UE_LOG(LogDevNotes, Error, TEXT("Could not get a response from server: %s"), *Req->GetURL());
+			}
+		}
+	});
+
+	Request->ProcessRequest();
+
 }

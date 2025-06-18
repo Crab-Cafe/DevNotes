@@ -18,6 +18,10 @@
 #include "SDevNoteTagPicker.h"
 #include "Containers/Array.h"
 
+// Add this near the top with other includes
+#include "Widgets/Colors/SColorBlock.h"
+#include "Widgets/Layout/SWrapBox.h"
+
 
 FString SDevNoteEditor::GetLevelPath() const
 {
@@ -47,7 +51,21 @@ void SDevNoteEditor::Construct(const FArguments& InArgs)
     // Initialize tags list
     RefreshTagsList();
 
+    // Create the tag picker widget early so we can reference it in CreateTagDisplay
+    SAssignNew(TagPicker, SDevNoteTagPicker)
+        .AvailableTags(&TagsList)
+        .SelectedTagIds(SelectedNote.IsValid() ? &SelectedNote->Tags : nullptr)
+        .OnTagAdded(this, &SDevNoteEditor::OnTagAdded)
+        .OnNewTagCreated(this, &SDevNoteEditor::OnNewTagCreated)
+        .OnTagListOpened(this, &SDevNoteEditor::OnTagPickerOpened)
+        .IsEnabled_Lambda([this]() -> bool {
+            return SelectedNote.IsValid();
+        });
+
+
     UDevNoteSubsystem::Get()->OnTagsUpdated.AddSP(SharedThis(this), &SDevNoteEditor::RefreshTagsList);
+    
+
     
     ChildSlot
     [
@@ -102,20 +120,26 @@ void SDevNoteEditor::Construct(const FArguments& InArgs)
                  })
         ]
 
-        // Tag selector
+        // Tag display area (replace the entire tag selector section with this)
         + SVerticalBox::Slot()
         .AutoHeight()
         .Padding(FMargin(0, 0, 0, 12))
         [
-            SAssignNew(TagPicker, SDevNoteTagPicker)
-                .AvailableTags(&TagsList)
-                .SelectedTagIds(SelectedNote.IsValid() ? &SelectedNote->Tags : nullptr)
-                .OnSelectionChanged(this, &SDevNoteEditor::OnTagSelectionChanged)
-                .OnNewTagCreated(this, &SDevNoteEditor::OnNewTagCreated)
-                .OnTagListOpened(this, &SDevNoteEditor::OnTagPickerOpened)
-                .IsEnabled_Lambda([this]() -> bool {
-                    return SelectedNote.IsValid();
-                })  
+            SNew(SBox)
+            .MinDesiredHeight(28)
+            .VAlign(VAlign_Top)
+            [
+                SNew(SBorder)
+                .BorderImage(FAppStyle::GetBrush("ToolPanel.DarkGroupBorder"))
+                .Padding(FMargin(6, 4))
+                [
+                    // This widget will be refreshed when tags change
+                    SAssignNew(TagDisplayWidget, SBox)
+                    [
+                        CreateTagDisplay()
+                    ]
+                ]
+            ]
         ]
         
         // Details
@@ -312,8 +336,13 @@ void SDevNoteEditor::SetSelectedNote(TSharedPtr<FDevNote> InNote)
     // Update tag picker with new note's tags
     if (TagPicker.IsValid())
     {
-        TagPicker->UpdateSelectedTags();
         TagPicker->SetSelectedTagIDs(SelectedNote.IsValid() ? &SelectedNote->Tags : nullptr);
+    }
+
+    // Refresh tag display
+    if (TagDisplayWidget.IsValid())
+    {
+        TagDisplayWidget->SetContent(CreateTagDisplay());
     }
 
     if (this->IsConstructed())
@@ -322,18 +351,27 @@ void SDevNoteEditor::SetSelectedNote(TSharedPtr<FDevNote> InNote)
     }
 }
 
+
 void SDevNoteEditor::OnTagSelectionChanged(const TArray<FGuid>& NewTagIds)
 {
     if (SelectedNote.IsValid())
     {
         SelectedNote->Tags = NewTagIds;
         
+        // Refresh tag display
+        if (TagDisplayWidget.IsValid())
+        {
+            TagDisplayWidget->SetContent(CreateTagDisplay());
+        }
+        
         if (UDevNoteSubsystem* Subsystem = UDevNoteSubsystem::Get())
         {
             Subsystem->UpdateNote(*SelectedNote);
         }
     }
+
 }
+
 
 void SDevNoteEditor::OnNewTagCreated(const FDevNoteTag& NewTag)
 {
@@ -353,6 +391,57 @@ void SDevNoteEditor::OnNewTagCreated(const FDevNoteTag& NewTag)
     }
 }
 
+void SDevNoteEditor::OnTagAdded(FGuid TagId) const
+{
+    if (SelectedNote.IsValid())
+    {
+        SelectedNote->Tags.AddUnique(TagId);
+        
+        // Refresh tag display
+        if (TagDisplayWidget.IsValid())
+        {
+            TagDisplayWidget->SetContent(CreateTagDisplay());
+        }
+        
+        // Refresh the tag picker to update its unselected list
+        if (TagPicker.IsValid())
+        {
+            TagPicker->RefreshTagsList();
+        }
+        
+        if (UDevNoteSubsystem* Subsystem = UDevNoteSubsystem::Get())
+        {
+            Subsystem->UpdateNote(*SelectedNote);
+        }
+    }
+}
+
+void SDevNoteEditor::OnTagRemoved(FGuid TagId) const
+{
+    if (SelectedNote.IsValid())
+    {
+        SelectedNote->Tags.Remove(TagId);
+        
+        // Refresh tag display
+        if (TagDisplayWidget.IsValid())
+        {
+            TagDisplayWidget->SetContent(CreateTagDisplay());
+        }
+        
+        // Refresh the tag picker to update its unselected list
+        if (TagPicker.IsValid())
+        {
+            TagPicker->RefreshTagsList();
+        }
+        
+        if (UDevNoteSubsystem* Subsystem = UDevNoteSubsystem::Get())
+        {
+            Subsystem->UpdateNote(*SelectedNote);
+        }
+    }
+}
+
+
 void SDevNoteEditor::RefreshTagsList()
 {
     TagsList.Empty();
@@ -365,3 +454,101 @@ void SDevNoteEditor::RefreshTagsList()
         }
     }
 }
+
+TSharedRef<SWidget> SDevNoteEditor::CreateTagDisplay() const
+{
+    // Create a horizontal wrap box for tag swatches
+    TSharedRef<SWrapBox> TagWrapBox = SNew(SWrapBox)
+        .UseAllottedSize(true)
+        .InnerSlotPadding(FVector2D(2, 2));
+
+    // Add existing tags if we have any
+    if (SelectedNote.IsValid() && !SelectedNote->Tags.IsEmpty())
+    {
+        // Find the tags that match our selected IDs and create swatches
+        for (const FGuid& TagId : SelectedNote->Tags)
+        {
+            // Find the tag in our tags list
+            const TSharedPtr<FDevNoteTag>* FoundTag = TagsList.FindByPredicate([&TagId](const TSharedPtr<FDevNoteTag>& NoteTag) {
+                return NoteTag.IsValid() && NoteTag->Id == TagId;
+            });
+
+            if (FoundTag && FoundTag->IsValid())
+            {
+                // Convert stored color to display color
+                FColor TagColor;
+                TagColor.DWColor() = (*FoundTag)->Colour;
+                FLinearColor DisplayColor = FLinearColor::FromSRGBColor(TagColor);
+
+                TagWrapBox->AddSlot()
+                [
+                    SNew(SBorder)
+                    .BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
+                    .Padding(FMargin(4, 2))
+                    .ToolTipText(FText::FromString((*FoundTag)->Name))
+                    [
+                        SNew(SHorizontalBox)
+                        
+                        // Color swatch
+                        + SHorizontalBox::Slot()
+                        .AutoWidth()
+                        .VAlign(VAlign_Center)
+                        .Padding(FMargin(0, 0, 4, 0))
+                        [
+                            SNew(SColorBlock)
+                            .Color(DisplayColor)
+                            .Size(FVector2D(12, 12))
+                            .AlphaDisplayMode(EColorBlockAlphaDisplayMode::Ignore)
+                            .CornerRadius(FVector4(2, 2, 2, 2))
+                        ]
+                        
+                        // Tag name
+                        + SHorizontalBox::Slot()
+                        .AutoWidth()
+                        .VAlign(VAlign_Center)
+                        .Padding(FMargin(0, 0, 2, 0))
+                        [
+                            SNew(STextBlock)
+                            .Text(FText::FromString((*FoundTag)->Name))
+                            .Font(FCoreStyle::GetDefaultFontStyle("Regular", 8))
+                        ]
+                        
+                        // Remove button
+                        + SHorizontalBox::Slot()
+                        .AutoWidth()
+                        .VAlign(VAlign_Center)
+                        [
+                            SNew(SButton)
+                            .ButtonStyle(FAppStyle::Get(), "SimpleButton")
+                            .ContentPadding(FMargin(2, 0))
+                            .ToolTipText(FText::FromString(TEXT("Remove tag")))
+                            .OnClicked_Lambda([this, TagId]() -> FReply {
+                                OnTagRemoved(TagId);
+                                return FReply::Handled();
+                            })
+                            [
+                                SNew(STextBlock)
+                                .Text(FText::FromString(TEXT("×")))
+                                .Font(FCoreStyle::GetDefaultFontStyle("Bold", 8))
+                                .ColorAndOpacity(FSlateColor::UseSubduedForeground())
+                            ]
+                        ]
+                    ]
+                ];
+            }
+        }
+    }
+
+    // Always add the + button as the last slot
+    TagWrapBox->AddSlot()
+    [
+        SNew(SBox)
+        .Padding(FMargin(2, 2))
+        [
+            TagPicker.ToSharedRef()
+        ]
+    ];
+
+    return TagWrapBox;
+}
+

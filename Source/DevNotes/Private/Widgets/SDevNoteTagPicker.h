@@ -9,7 +9,7 @@
 #include "Widgets/Colors/SColorPicker.h"
 #include "FDevNoteTag.h"
 
-DECLARE_DELEGATE_OneParam(FOnTagSelectionChanged, const TArray<FGuid>&);
+DECLARE_DELEGATE_OneParam(FOnTagAdded, FGuid);
 DECLARE_DELEGATE_OneParam(FOnNewTagCreated, const FDevNoteTag&);
 DECLARE_DELEGATE(FOnOpened);
 
@@ -23,7 +23,7 @@ public:
     {}
         SLATE_ARGUMENT(TArray<TSharedPtr<FDevNoteTag>>*, AvailableTags)
         SLATE_ARGUMENT(TArray<FGuid>*, SelectedTagIds)
-        SLATE_EVENT(FOnTagSelectionChanged, OnSelectionChanged)
+        SLATE_EVENT(FOnTagAdded, OnTagAdded)
         SLATE_EVENT(FOnNewTagCreated, OnNewTagCreated)
         SLATE_EVENT(FOnOpened, OnTagListOpened)
     SLATE_END_ARGS()
@@ -32,7 +32,6 @@ public:
     virtual ~SDevNoteTagPicker() override;
     
     void RefreshTagsList();
-    void UpdateSelectedTags();
     void SetSelectedTagIDs(TArray<FGuid>* TagsArray)
     {
         SelectedTagIds = TagsArray;
@@ -44,10 +43,10 @@ private:
     TSharedRef<SWidget> GenerateTagDropdown();
     void OnClickedOutside();
     void OnMenuOpenChanged(bool bIsOpen);
-    void OnFocusChanging(const FFocusEvent& InFocusEvent, const FWeakWidgetPath& InOldFocusedWidgetPath, const TSharedPtr<SWidget>& InOldFocusedWidget, const FWidgetPath& InNewWidgetPath, const TSharedPtr<SWidget>& InNewFocusedWidget);
     TSharedRef<ITableRow> GenerateTagRow(TSharedPtr<FDevNoteTag> InTag, const TSharedRef<STableViewBase>& OwnerTable);
-    void OnTagSelectionChangedInternal(TSharedPtr<FDevNoteTag> SelectedItem, ESelectInfo::Type SelectInfo);
-    
+    void OnTagClicked(TSharedPtr<FDevNoteTag> ClickedTag);
+    void OnApplicationPreInputKeyDown(const FKeyEvent& InKeyEvent) const; 
+
     // Tag Creation
     FReply OnAddNewTagClicked();
     void OnNewTagNameChanged(const FText& NewText);
@@ -59,16 +58,24 @@ private:
     EVisibility GetColorPickerVisibility() const;
     
     // Display Methods
-    FText GetSelectedTagsText() const;
     FText GetNewTagNameText() const;
     FLinearColor GetPendingTagColor() const;
     bool IsNewTagValid() const;
     
+    // Helper methods
+    TArray<TSharedPtr<FDevNoteTag>> GetUnselectedTags() const;
+
+    FReply OnTagRowMouseButtonUp(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent, TSharedPtr<FDevNoteTag> ClickedTag);
+    void OnDeleteTagClicked(TSharedPtr<FDevNoteTag> TagToDelete);
+    TSharedRef<SWidget> CreateTagContextMenu(TSharedPtr<FDevNoteTag> ClickedTag);
+
+
 private:
     // Data
     TArray<TSharedPtr<FDevNoteTag>>* TagsList = nullptr;
     TArray<FGuid>* SelectedTagIds = nullptr;
-    FOnTagSelectionChanged OnSelectionChanged;
+    TArray<TSharedPtr<FDevNoteTag>> UnselectedTags;
+    FOnTagAdded OnTagAdded;
     FOnNewTagCreated OnNewTagCreated;
     FOnOpened OnTagListOpened;
     
@@ -86,7 +93,6 @@ private:
     FLinearColor PendingTagColor = FLinearColor::Blue;
     
     // Internal state tracking
-    bool bUpdatingSelection = false;
     bool bColorPickerOpen = false;
     FDelegateHandle OutsideClickHandle;
 };
