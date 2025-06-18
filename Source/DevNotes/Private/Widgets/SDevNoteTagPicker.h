@@ -6,6 +6,7 @@
 #include "Widgets/Views/SListView.h"
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/Colors/SColorBlock.h"
+#include "Widgets/Colors/SColorPicker.h"
 #include "FDevNoteTag.h"
 
 DECLARE_DELEGATE_OneParam(FOnTagSelectionChanged, const TArray<FGuid>&);
@@ -41,8 +42,9 @@ private:
     // UI Event Handlers
     FReply OnTagButtonClicked();
     TSharedRef<SWidget> GenerateTagDropdown();
+    void OnClickedOutside();
     void OnMenuOpenChanged(bool bIsOpen);
-    void OnFocusChanging(const FFocusEvent& InFocusEvent, const FWeakWidgetPath& InOldFocusedWidgetPath, const TSharedPtr<SWidget>& InOldFocusedWidget, const FWidgetPath& InNewWidgetPath, const TSharedPtr<SWidget>& InNewFocusedWidget);  // Add this
+    void OnFocusChanging(const FFocusEvent& InFocusEvent, const FWeakWidgetPath& InOldFocusedWidgetPath, const TSharedPtr<SWidget>& InOldFocusedWidget, const FWidgetPath& InNewWidgetPath, const TSharedPtr<SWidget>& InNewFocusedWidget);
     TSharedRef<ITableRow> GenerateTagRow(TSharedPtr<FDevNoteTag> InTag, const TSharedRef<STableViewBase>& OwnerTable);
     void OnTagSelectionChangedInternal(TSharedPtr<FDevNoteTag> SelectedItem, ESelectInfo::Type SelectInfo);
     
@@ -50,6 +52,11 @@ private:
     FReply OnAddNewTagClicked();
     void OnNewTagNameChanged(const FText& NewText);
     void OnColorPickerClosed(FLinearColor NewColor);
+    
+    // Color Picker
+    FReply OnColorButtonClicked();
+    void OnColorPickerCommitted(FLinearColor NewColor);
+    EVisibility GetColorPickerVisibility() const;
     
     // Display Methods
     FText GetSelectedTagsText() const;
@@ -71,6 +78,8 @@ private:
     TSharedPtr<SEditableTextBox> NewTagNameBox;
     TSharedPtr<SColorBlock> ColorBlockWidget;
     TSharedPtr<SWidget> MenuContentWidget;
+    TSharedPtr<SBox> ColorPickerContainer;
+    TSharedPtr<SColorPicker> InlineColorPicker;
     
     // New Tag State
     FString NewTagName;
@@ -78,5 +87,6 @@ private:
     
     // Internal state tracking
     bool bUpdatingSelection = false;
+    bool bColorPickerOpen = false;
     FDelegateHandle OutsideClickHandle;
 };

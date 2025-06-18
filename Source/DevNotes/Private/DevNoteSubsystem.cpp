@@ -448,7 +448,7 @@ TSharedPtr<FJsonObject> UDevNoteSubsystem::ConvertTagToJsonObject(const FDevNote
 	TSharedPtr<FJsonObject> JsonObject = MakeShared<FJsonObject>();
 	JsonObject->SetStringField(TEXT("id"), Tag.Id.ToString(EGuidFormats::DigitsWithHyphens));
 	JsonObject->SetStringField(TEXT("name"), Tag.Name);
-	JsonObject->SetNumberField(TEXT("color"), Tag.Colour);
+	JsonObject->SetNumberField(TEXT("colour"), Tag.Colour);
 	return JsonObject;
 
 }
@@ -468,7 +468,7 @@ bool UDevNoteSubsystem::ParseTagFromJsonObject(const TSharedPtr<FJsonObject>& Js
 
 	JsonObj->TryGetStringField(TEXT("id"), idString);
 	JsonObj->TryGetStringField(TEXT("name"), nameString);
-	JsonObj->TryGetNumberField(TEXT("color"), colour);
+	JsonObj->TryGetNumberField(TEXT("colour"), colour);
 
 	OutTag.Id = FGuid(idString);
 	OutTag.Name = nameString;
