@@ -47,7 +47,6 @@ void FDevNotesModule::StartupModule()
 
 void FDevNotesModule::RegisterMenus()
 {
-	
 	FToolMenuOwnerScoped OwnerScoped(this);
 
 	UToolMenu* ToolbarMenu = UToolMenus::Get()->ExtendMenu("LevelEditor.LevelEditorToolBar.User");
@@ -81,14 +80,18 @@ TSharedRef<SWidget> FDevNotesModule::GenerateNotesDropdown()
 	UDevNoteSubsystem* Subsystem = GEditor->GetEditorSubsystem<UDevNoteSubsystem>();
 	Subsystem->RequestNotesFromServer();
 	const auto& notes = Subsystem->GetNotes();
-	TSharedRef<SDevNotesDropdownWidget> Widget = SNew(SDevNotesDropdownWidget);
-	Widget->SetNotesSource(notes);
+	if (NotesWidget == nullptr)
+	{
+		NotesWidget = SNew(SDevNotesDropdownWidget);
+	}
+
+	NotesWidget->SetNotesSource(notes);
 	
 	return SNew(SBox)
 	.WidthOverride(600)
 	.HeightOverride(400)
 	[
-		Widget
+		NotesWidget.ToSharedRef()
 	];
 }
 

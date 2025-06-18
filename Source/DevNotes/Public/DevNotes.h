@@ -7,7 +7,7 @@
 
 class FToolBarBuilder;
 class FMenuBuilder;
-
+class SDevNotesDropdownWidget;
 class FDevNotesModule : public IModuleInterface
 {
 public:
@@ -20,5 +20,6 @@ public:
 private:
 	TSharedPtr<SButton> ToolButton;
 	TSharedRef<SWidget> GenerateNotesDropdown();
+	TSharedPtr<SDevNotesDropdownWidget> NotesWidget;
 	void RegisterMenus();
 };
