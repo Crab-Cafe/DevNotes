@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "FDevNote.h"
+#include "FDevNoteUser.h"
 #include "HttpFwd.h"
 #include "Subsystems/EngineSubsystem.h"
 #include "DevNoteSubsystem.generated.h"
@@ -51,6 +52,9 @@ public:
 	void PostTag(FDevNoteTag NoteTag);
 	void DeleteTag(const FGuid& TagId);
 
+	static bool ParseUserFromJsonObject(const TSharedPtr<FJsonObject>& JsonObj, FDevNoteUser& OutUser);
+	void HandleUsersResponse(TSharedPtr<IHttpRequest> HttpRequest, TSharedPtr<IHttpResponse> HttpResponse, bool bArg);
+	void RequestUsersFromServer();
 
 	FOnNotesUpdated OnNotesUpdated;
 	FOnTagsUpdated OnTagsUpdated;
@@ -77,13 +81,17 @@ public:
 	static UDevNoteSubsystem* Get();
 	bool TryAutoSignIn();
 
+	const FDevNoteUser& GetCurrentUser();
+	
 private:
 	bool bIsEditorEditing = false;
 	bool bRefreshPendingWhileEditing = false;
 
 	TArray<TSharedPtr<FDevNote>> CachedNotes;
 	TArray<FDevNoteTag> CachedTags;
+	TArray<FDevNoteUser> CachedUsers;
 
+	FGuid CurrentUserId;
 	FString SessionToken;
 	
 	UPROPERTY()

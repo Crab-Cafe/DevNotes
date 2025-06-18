@@ -31,12 +31,14 @@ void SDevNotesDropdownWidget::OnSignedIn(FString Token)
 {
 	Editor->SetEnabled(true);
 	Selector->SetEnabled(true);
+	UpdateLoginStatusBox();
 }
 
 void SDevNotesDropdownWidget::OnSignedOut()
 {
 	Editor->SetEnabled(false);
 	Selector->SetEnabled(false);
+	UpdateLoginStatusBox();
 }
 
 void SDevNotesDropdownWidget::NewNote()
@@ -138,7 +140,7 @@ void SDevNotesDropdownWidget::UpdateLoginStatusBox()
 		.AutoWidth()
 		[
 			SNew(STextBlock)
-			.Text(LOCTEXT("LoggedInStatus", "Status: Logged in"))
+			.Text(FText::Format(LOCTEXT("LoggedInStatus", "Status: Logged in as {0}"), FText::FromString(UDevNoteSubsystem::Get()->GetCurrentUser().Name)))
 		];
 
 		LoginStatusBox->AddSlot()

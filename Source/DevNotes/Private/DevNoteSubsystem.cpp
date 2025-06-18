@@ -93,7 +93,15 @@ bool UDevNoteSubsystem::TryAutoSignIn()
 	Request->SetURL(GetServerAddress() + TEXT("/validatetoken"));
 	Request->SetVerb(TEXT("POST"));
 	Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
-	Request->SetContentAsString(SavedToken);
+
+	TSharedPtr<FJsonObject> JsonObject = MakeShared<FJsonObject>();
+	JsonObject->SetStringField(TEXT("token"), SavedToken);
+
+	FString OutputString;
+	TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);
+	FJsonSerializer::Serialize(JsonObject.ToSharedRef(), Writer);
+	
+	Request->SetContentAsString(OutputString);
 
 	// Response handler
 	Request->OnProcessRequestComplete().BindLambda(
@@ -108,6 +116,18 @@ bool UDevNoteSubsystem::TryAutoSignIn()
 				{
 					// Token is valid - we're already set up, just broadcast the event
 					UE_LOG(LogDevNotes, Log, TEXT("Session token validated successfully"));
+					TSharedPtr<FJsonObject> JsonObj;
+					const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(HttpResponse->GetContentAsString());
+
+					if (FJsonSerializer::Deserialize(Reader, JsonObj) && JsonObj.IsValid())
+					{
+						FString UserIdString;
+						if (JsonObj->TryGetStringField(TEXT("Id"), UserIdString))
+						{
+							CurrentUserId = FGuid(UserIdString);
+							UE_LOG(LogDevNotes, Log, TEXT("Current user ID restored: %s"), *CurrentUserId.ToString());
+						}
+					}
 					OnSignedIn.Broadcast(SavedToken);
 				}
 				else if (ResponseCode == 401 || ResponseCode == 403)
@@ -134,6 +154,25 @@ bool UDevNoteSubsystem::TryAutoSignIn()
 	Request->ProcessRequest();
 	return true;
 }
+
+const FDevNoteUser& UDevNoteSubsystem::GetCurrentUser()
+{
+	// Find the current user in our cached users list
+	if (CurrentUserId.IsValid())
+	{
+		if (const FDevNoteUser* FoundUser = CachedUsers.FindByPredicate([this](const FDevNoteUser& User) {
+			return User.Id == CurrentUserId;
+		}))
+		{
+			return *FoundUser;
+		}
+	}
+	
+	// Return a static empty user if not found or not logged in
+	static FDevNoteUser EmptyUser;
+	return EmptyUser;
+}
+
 
 void UDevNoteSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
@@ -162,7 +201,7 @@ void UDevNoteSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 void UDevNoteSubsystem::RequestNotesFromServer()
 {
 	RequestTagsFromServer();
-	
+	RequestUsersFromServer();
 	FHttpModule* Http = &FHttpModule::Get();
 	TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = Http->CreateRequest();
 	
@@ -400,7 +439,7 @@ bool UDevNoteSubsystem::ParseNoteFromJsonObject(const TSharedPtr<FJsonObject>& J
 	{
 		for (const TSharedPtr<FJsonValue>& Val : *TagIdsArray)
 		{
-			FString TagIdStr = Val->AsObject()->GetStringField("id");
+			FString TagIdStr = Val->AsObject()->GetStringField(TEXT("id"));
 			FGuid Guid;
 			if (FGuid::Parse(TagIdStr, Guid))
 			{
@@ -685,6 +724,7 @@ void UDevNoteSubsystem::SignOutInternal()
 	ClearSessionToken();
 	CachedNotes.Empty();
 	CachedTags.Empty();
+	CurrentUserId.Invalidate();
 	
 	// Stop polling timer
 	if (RefreshNotesTimerHandle.IsValid())
@@ -706,7 +746,7 @@ void UDevNoteSubsystem::SignOutInternal()
 void UDevNoteSubsystem::SignIn(const FString& UserName, const FString& Password,
                                TFunction<void(bool bSuccess, const FString& Error)> Completion)
 {
-	// Prepare JSON payload
+		// Prepare JSON payload
 	TSharedRef<FJsonObject> RequestObj = MakeShared<FJsonObject>();
 	RequestObj->SetStringField(TEXT("UserName"), UserName);
 	RequestObj->SetStringField(TEXT("Password"), Password);
@@ -734,6 +774,19 @@ void UDevNoteSubsystem::SignIn(const FString& UserName, const FString& Password,
 				{
 					const FString Token = JsonObj->GetStringField(TEXT("token"));
 					SetSessionToken(Token);
+					
+					// Extract current user ID from response if available
+					FString UserIdString;
+					if (JsonObj->TryGetStringField(TEXT("Id"), UserIdString))
+					{
+						CurrentUserId = FGuid(UserIdString);
+						UE_LOG(LogDevNotes, Log, TEXT("Current user ID set to: %s"), *CurrentUserId.ToString());
+					}
+					else
+					{
+						UE_LOG(LogDevNotes, Warning, TEXT("User ID not found in sign-in response"));
+					}
+					
 					OnSignedIn.Broadcast(Token);
 					
 					if (Completion) 
@@ -762,6 +815,7 @@ void UDevNoteSubsystem::SignIn(const FString& UserName, const FString& Password,
 		});
 		
 	HttpRequest->ProcessRequest();
+
 }
 
 void UDevNoteSubsystem::SignOut(TFunction<void(bool)> Completion)
@@ -781,6 +835,13 @@ void UDevNoteSubsystem::SignOut(TFunction<void(bool)> Completion)
 	HttpRequest->SetURL(GetServerAddress() + TEXT("/signout"));
 	HttpRequest->SetVerb(TEXT("POST"));
 	HttpRequest->SetHeader(TEXT("X-Session-Token"), *SessionToken);
+
+	TSharedPtr<FJsonObject> JsonObject = MakeShared<FJsonObject>();
+	JsonObject->SetStringField(TEXT("sessionToken"), SessionToken);
+
+	FString OutputString;
+	TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);
+	FJsonSerializer::Serialize(JsonObject.ToSharedRef(), Writer);
 	HttpRequest->SetContentAsString(SessionToken);
 	
 	HttpRequest->OnProcessRequestComplete().BindLambda(
@@ -804,7 +865,6 @@ void UDevNoteSubsystem::SignOut(TFunction<void(bool)> Completion)
 	HttpRequest->ProcessRequest();
 }
 
-// Add a method to manually retry validation if needed
 void UDevNoteSubsystem::RetryTokenValidation()
 {
 	if (!SessionToken.IsEmpty())
@@ -815,22 +875,62 @@ void UDevNoteSubsystem::RetryTokenValidation()
 		Request->SetURL(GetServerAddress() + TEXT("/validatetoken"));
 		Request->SetVerb(TEXT("POST"));
 		Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
-		Request->SetContentAsString(SessionToken);
 
+		//TSharedPtr<FJsonObject> JsonObject = MakeShared<FJsonObject>();
+		//JsonObject->SetStringField(TEXT("token"), SessionToken);
+
+		//FString OutputString;
+		//TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);
+		//FJsonSerializer::Serialize(JsonObject.ToSharedRef(), Writer);
+		Request->SetContentAsString(SessionToken);
+		
 		Request->OnProcessRequestComplete().BindLambda(
 			[this](FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse, bool bWasSuccessful)
 			{
-				if (bWasSuccessful && HttpResponse.IsValid() && HttpResponse->GetResponseCode() == 200)
+				if (bWasSuccessful && HttpResponse.IsValid())
 				{
-					UE_LOG(LogDevNotes, Log, TEXT("Token validation retry successful"));
-					OnSignedIn.Broadcast(SessionToken);
+					const int32 ResponseCode = HttpResponse->GetResponseCode();
+					UE_LOG(LogDevNotes, Log, TEXT("Token validation response: %d"), ResponseCode);
+				
+					if (ResponseCode == 200)
+					{
+						// Token is valid - extract user ID if available
+						TSharedPtr<FJsonObject> JsonObj;
+						const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(HttpResponse->GetContentAsString());
+
+						if (FJsonSerializer::Deserialize(Reader, JsonObj) && JsonObj.IsValid())
+						{
+							FString UserIdString;
+							if (JsonObj->TryGetStringField(TEXT("Id"), UserIdString))
+							{
+								CurrentUserId = FGuid(UserIdString);
+								UE_LOG(LogDevNotes, Log, TEXT("Current user ID restored: %s"), *CurrentUserId.ToString());
+							}
+						}
+					
+						UE_LOG(LogDevNotes, Log, TEXT("Session token validated successfully"));
+						OnSignedIn.Broadcast(SessionToken);
+					}
+					else if (ResponseCode == 401 || ResponseCode == 403)
+					{
+						// Token is explicitly rejected by server - clear it
+						UE_LOG(LogDevNotes, Warning, TEXT("Session token rejected by server (code: %d) - clearing"), ResponseCode);
+						ClearSessionToken();
+						OnSignedOut.Broadcast();
+					}
+					else
+					{
+						// Other server error - keep token but don't sign in yet
+						UE_LOG(LogDevNotes, Warning, TEXT("Server error during token validation (code: %d) - keeping token for retry"), ResponseCode);
+					}
 				}
-				else if (bWasSuccessful && HttpResponse.IsValid() && (HttpResponse->GetResponseCode() == 401 || HttpResponse->GetResponseCode() == 403))
+				else
 				{
-					UE_LOG(LogDevNotes, Warning, TEXT("Token validation retry failed - token is invalid"));
-					ClearSessionToken();
-					OnSignedOut.Broadcast();
+					// Network error or no response - keep the token, don't sign in yet
+					// This prevents losing tokens when the server is temporarily unavailable
+					UE_LOG(LogDevNotes, Warning, TEXT("Failed to validate token due to network error - keeping token for retry"));
 				}
+
 			});
 
 		Request->ProcessRequest();
@@ -1002,4 +1102,61 @@ void UDevNoteSubsystem::DeleteTag(const FGuid& TagId)
 
 	Request->ProcessRequest();
 
+}
+
+bool UDevNoteSubsystem::ParseUserFromJsonObject(const TSharedPtr<FJsonObject>& JsonObj, FDevNoteUser& OutUser)
+{
+	if (!JsonObj.IsValid())
+	{
+		return false;
+	}
+
+	FString idString;
+	FString nameString;
+
+	JsonObj->TryGetStringField(TEXT("id"), idString);
+	JsonObj->TryGetStringField(TEXT("name"), nameString);
+
+	OutUser.Id = FGuid(idString);
+	OutUser.Name = nameString;
+	return true;
+}
+
+
+void UDevNoteSubsystem::HandleUsersResponse(TSharedPtr<IHttpRequest> HttpRequest,
+                                            TSharedPtr<IHttpResponse> HttpResponse, bool bWasSuccessful)
+{
+	CachedUsers.Empty();
+	HandleTokenInvalidation(HttpResponse);
+
+	if (bWasSuccessful && HttpResponse->GetResponseCode() == 200)
+	{
+		FString ResponseString = HttpResponse->GetContentAsString();
+		TArray<TSharedPtr<FJsonValue>> JsonArray;
+		TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(ResponseString);
+		if (FJsonSerializer::Deserialize(Reader, JsonArray))
+		{
+			for (const auto& Item : JsonArray)
+			{
+				FDevNoteUser User;
+				if (ParseUserFromJsonObject(Item->AsObject(), User))
+				{
+					CachedUsers.Add(User);
+				}
+			}
+		}
+	}
+}
+
+void UDevNoteSubsystem::RequestUsersFromServer()
+{
+	FHttpModule* Http = &FHttpModule::Get();
+	TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = Http->CreateRequest();
+	
+	Request->OnProcessRequestComplete().BindUObject(this, &UDevNoteSubsystem::HandleUsersResponse);
+	Request->SetURL(GetServerAddress() + TEXT("/users"));
+	Request->SetVerb("GET");
+	Request->SetHeader("Content-Type", "application/json");
+	Request->SetHeader(TEXT("X-Session-Token"), *SessionToken);
+	Request->ProcessRequest();
 }
