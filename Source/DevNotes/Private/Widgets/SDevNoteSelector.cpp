@@ -280,10 +280,67 @@ TSharedRef<ITableRow> SDevNoteSelector::OnGenerateNoteRow(
     TSharedPtr<FDevNote> InNote,
     const TSharedRef<STableViewBase>& OwnerTable)
 {
+    // Get cached tags from subsystem
+    auto CachedTags = UDevNoteSubsystem::Get()->GetCachedTags();
+    
+    TSharedPtr<SHorizontalBox> TagCirclesBox = SNew(SHorizontalBox);
+    
+    // Tag circle for each tag on note
+    for (const FGuid& TagId : InNote->Tags)
+    {
+        if (const FDevNoteTag* FoundTag = CachedTags.FindByPredicate([&TagId](const FDevNoteTag& NoteTag) { 
+            return NoteTag.Id == TagId; 
+        }))
+        {
+            FColor TagColor;
+            TagColor.DWColor() = FoundTag->Colour;
+            FLinearColor DisplayColor = FLinearColor::FromSRGBColor(TagColor);
+            
+            TagCirclesBox->AddSlot()
+            .AutoWidth()
+            .Padding(2.0f, 0.0f)
+            [
+                SNew(SBox)
+                .WidthOverride(12.0f)
+                .HeightOverride(12.0f)
+                .ToolTipText(FText::FromString(FString::Printf(TEXT("%s\nColor: R=%.2f G=%.2f B=%.2f"), 
+                    *FoundTag->Name, 
+                    DisplayColor.R, 
+                    DisplayColor.G, 
+                    DisplayColor.B)))
+                [
+                    SNew(SImage)
+                    .Image(FAppStyle::GetBrush("Icons.FilledCircle"))
+                    .ColorAndOpacity(DisplayColor)
+                ]
+            ];
+        }
+    }
+    
     return SNew(STableRow<TSharedPtr<FDevNote>>, OwnerTable)
     [
-        SNew(STextBlock).Text(FText::FromString(InNote->Title))
+        SNew(SHorizontalBox)
+        
+        // Note title
+        + SHorizontalBox::Slot()
+        .FillWidth(1.0f)
+        .VAlign(VAlign_Center)
+        [
+            SNew(STextBlock)
+            .Text(FText::FromString(InNote->Title))
+        ]
+        
+        // Tag circles
+        + SHorizontalBox::Slot()
+        .AutoWidth()
+        .VAlign(VAlign_Center)
+        .Padding(8.0f, 0.0f, 0.0f, 0.0f)
+        [
+            TagCirclesBox.ToSharedRef()
+        ]
     ];
+
+
 }
 
 void SDevNoteSelector::OnNoteSelectedInternal(TSharedPtr<FDevNote> InNote, ESelectInfo::Type SelectionType)

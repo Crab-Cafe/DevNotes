@@ -20,7 +20,7 @@ public:
 	bool IsCDO();
 
 	// Get a copy of the note represented by this actor. Exists because BP cannot use a TSharedPtr
-	UFUNCTION(BlueprintPure, BlueprintCallable)
+	UFUNCTION(BlueprintPure, BlueprintCallable, Category="Dev Note")
 	const FDevNote GetNote() const;
 
 	// The note this actor represents
