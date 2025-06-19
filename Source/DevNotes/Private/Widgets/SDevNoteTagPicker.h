@@ -41,7 +41,6 @@ private:
     // UI Event Handlers
     FReply OnTagButtonClicked();
     TSharedRef<SWidget> GenerateTagDropdown();
-    void OnClickedOutside();
     void OnMenuOpenChanged(bool bIsOpen);
     TSharedRef<ITableRow> GenerateTagRow(TSharedPtr<FDevNoteTag> InTag, const TSharedRef<STableViewBase>& OwnerTable);
     void OnTagClicked(TSharedPtr<FDevNoteTag> ClickedTag);
@@ -56,6 +55,8 @@ private:
     FReply OnColorButtonClicked();
     void OnColorPickerCommitted(FLinearColor NewColor);
     EVisibility GetColorPickerVisibility() const;
+    TSharedRef<SWidget> CreateColourSwatch(const FLinearColor& Color);
+
     
     // Display Methods
     FText GetNewTagNameText() const;
@@ -67,8 +68,6 @@ private:
 
     FReply OnTagRowMouseButtonUp(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent, TSharedPtr<FDevNoteTag> ClickedTag);
     void OnDeleteTagClicked(TSharedPtr<FDevNoteTag> TagToDelete);
-    TSharedRef<SWidget> CreateTagContextMenu(TSharedPtr<FDevNoteTag> ClickedTag);
-
 
 private:
     // Data

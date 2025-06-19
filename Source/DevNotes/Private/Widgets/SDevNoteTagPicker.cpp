@@ -8,7 +8,6 @@
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Framework/Application/SlateApplication.h"
-#include "Widgets/Colors/SColorPicker.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Input/SCheckBox.h"
 #include "Layout/Visibility.h"
@@ -29,11 +28,13 @@ void SDevNoteTagPicker::Construct(const FArguments& InArgs)
 
     ChildSlot
     [
+        // Dropdown menu anchor
         SAssignNew(TagPickerAnchor, SMenuAnchor)
         .OnMenuOpenChanged(this, &SDevNoteTagPicker::OnMenuOpenChanged)
         .Placement(MenuPlacement_BelowAnchor)
         .Method(EPopupMethod::UseCurrentWindow)
         [
+            // Add Tag + button
             SNew(SButton)
             .ButtonStyle(FAppStyle::Get(), "SimpleButton")
             .ToolTipText(FText::FromString(TEXT("Add Tag")))
@@ -62,7 +63,6 @@ void SDevNoteTagPicker::Construct(const FArguments& InArgs)
 
 SDevNoteTagPicker::~SDevNoteTagPicker()
 {
-    // Unregister outside click notifications
     if (FSlateApplication::IsInitialized() && OutsideClickHandle.IsValid())
     {
         FSlateApplication::Get().OnApplicationPreInputKeyDownListener().Remove(OutsideClickHandle);
@@ -77,7 +77,6 @@ void SDevNoteTagPicker::OnApplicationPreInputKeyDown(const FKeyEvent& InKeyEvent
         return;
     }
 
-    // Don't close if color picker is open
     if (bColorPickerOpen)
     {
         return;
@@ -88,25 +87,24 @@ void SDevNoteTagPicker::OnApplicationPreInputKeyDown(const FKeyEvent& InKeyEvent
         return;
     }
 
-    // Get the widget under the mouse cursor
     FVector2D MousePosition = FSlateApplication::Get().GetCursorPos();
     FWidgetPath WidgetPath = FSlateApplication::Get().LocateWindowUnderMouse(MousePosition, FSlateApplication::Get().GetInteractiveTopLevelWindows());
     
     if (WidgetPath.IsValid())
     {
-        // Check if any widget in the path is part of our menu system
+        // Check if any widget in the path is part of the dropdown menu
         for (int32 WidgetIndex = 0; WidgetIndex < WidgetPath.Widgets.Num(); ++WidgetIndex)
         {
             TSharedPtr<SWidget> Widget = WidgetPath.Widgets[WidgetIndex].Widget.ToSharedPtr();
             if (Widget.IsValid())
             {
-                // Check if this widget is our anchor or menu content
+                // Check if this widget is anchor or menu content
                 if (Widget == TagPickerAnchor || Widget == MenuContentWidget)
                 {
-                    return; // Don't close, we're clicking within our menu
+                    return; // Dont close
                 }
                 
-                // Check if this widget is a child of our menu content
+                // Is clicked widget a child of our menu?
                 if (MenuContentWidget.IsValid())
                 {
                     TSharedPtr<SWidget> CurrentParent = Widget->GetParentWidget();
@@ -114,7 +112,7 @@ void SDevNoteTagPicker::OnApplicationPreInputKeyDown(const FKeyEvent& InKeyEvent
                     {
                         if (CurrentParent == MenuContentWidget)
                         {
-                            return; // Don't close, we're clicking within our menu
+                            return; // Clicking within menu, dont close
                         }
                         CurrentParent = CurrentParent->GetParentWidget();
                     }
@@ -140,16 +138,12 @@ void SDevNoteTagPicker::OnMenuOpenChanged(bool bIsOpen)
 {
     if (bIsOpen)
     {
-        // Update the list of unselected tags
+        // Update list and refresh view
         UnselectedTags = GetUnselectedTags();
-        
-        // Refresh the list view
         if (TagListView.IsValid())
         {
             TagListView->RequestListRefresh();
         }
-        
-        // Notify parent that tag list was opened
         OnTagListOpened.ExecuteIfBound();
 
         // Register for mouse button down events to detect outside clicks
@@ -176,20 +170,6 @@ void SDevNoteTagPicker::OnMenuOpenChanged(bool bIsOpen)
     }
 }
 
-void SDevNoteTagPicker::OnClickedOutside()
-{
-    // Don't close if color picker is open
-    if (bColorPickerOpen)
-    {
-        return;
-    }
-
-    if (TagPickerAnchor.IsValid())
-    {
-        TagPickerAnchor->SetIsOpen(false);
-    }
-}
-
 TArray<TSharedPtr<FDevNoteTag>> SDevNoteTagPicker::GetUnselectedTags() const
 {
     TArray<TSharedPtr<FDevNoteTag>> Result;
@@ -213,7 +193,6 @@ TArray<TSharedPtr<FDevNoteTag>> SDevNoteTagPicker::GetUnselectedTags() const
 
 TSharedRef<SWidget> SDevNoteTagPicker::GenerateTagDropdown()
 {
-    // Store reference to the menu content for focus detection
     MenuContentWidget = SNew(SBorder)
         .Padding(8)
         .BorderImage(FAppStyle::GetBrush("Menu.Background"))
@@ -223,7 +202,7 @@ TSharedRef<SWidget> SDevNoteTagPicker::GenerateTagDropdown()
             [
                 SNew(SVerticalBox)
                 
-                // Header
+                // title
                 + SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 8)
                 [
                     SNew(STextBlock)
@@ -231,7 +210,7 @@ TSharedRef<SWidget> SDevNoteTagPicker::GenerateTagDropdown()
                     .Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
                 ]
 
-                // Tag List with scroll
+                // Tag List
                 + SVerticalBox::Slot().AutoHeight().MaxHeight(200)
                 [
                     SNew(SScrollBox)
@@ -265,7 +244,7 @@ TSharedRef<SWidget> SDevNoteTagPicker::GenerateTagDropdown()
                 [
                     SNew(SHorizontalBox)
                     
-                    // Name input
+                    // Name 
                     + SHorizontalBox::Slot().FillWidth(1.0f)
                     [
                         SAssignNew(NewTagNameBox, SEditableTextBox)
@@ -274,7 +253,7 @@ TSharedRef<SWidget> SDevNoteTagPicker::GenerateTagDropdown()
                         .OnTextChanged(this, &SDevNoteTagPicker::OnNewTagNameChanged)
                     ]
                     
-                    // Color picker button
+                    // Color picker 
                     + SHorizontalBox::Slot().AutoWidth().Padding(4, 0, 0, 0)
                     [
                         SNew(SButton)
@@ -299,7 +278,7 @@ TSharedRef<SWidget> SDevNoteTagPicker::GenerateTagDropdown()
                     ]
                 ]
 
-                // Simple Color Palette (shown when color button is clicked)
+                // Colour swatches. Colour picker was creating a lot of issues
                 + SVerticalBox::Slot().AutoHeight().Padding(0, 4)
                 [
                     SAssignNew(ColorPickerContainer, SBox)
@@ -318,145 +297,17 @@ TSharedRef<SWidget> SDevNoteTagPicker::GenerateTagDropdown()
                             .SlotPadding(FMargin(2))
                             
                             // Row 1
-                            + SUniformGridPanel::Slot(0, 0)
-                            [
-                                SNew(SButton)
-                                .ButtonStyle(FAppStyle::Get(), "SimpleButton")
-                                .OnClicked_Lambda([this]() -> FReply {
-                                    PendingTagColor = FLinearColor::Red;
-                                    bColorPickerOpen = false;
-                                    return FReply::Handled();
-                                })
-                                [
-                                    SNew(SColorBlock)
-                                    .Color(FLinearColor::Red)
-                                    .Size(FVector2D(16, 16))
-                                ]
-                            ]
-                            + SUniformGridPanel::Slot(1, 0)
-                            [
-                                SNew(SButton)
-                                .ButtonStyle(FAppStyle::Get(), "SimpleButton")
-                                .OnClicked_Lambda([this]() -> FReply {
-                                    PendingTagColor = FLinearColor::Green;
-                                    bColorPickerOpen = false;
-                                    return FReply::Handled();
-                                })
-                                [
-                                    SNew(SColorBlock)
-                                    .Color(FLinearColor::Green)
-                                    .Size(FVector2D(16, 16))
-                                ]
-                            ]
-                            + SUniformGridPanel::Slot(2, 0)
-                            [
-                                SNew(SButton)
-                                .ButtonStyle(FAppStyle::Get(), "SimpleButton")
-                                .OnClicked_Lambda([this]() -> FReply {
-                                    PendingTagColor = FLinearColor::Blue;
-                                    bColorPickerOpen = false;
-                                    return FReply::Handled();
-                                })
-                                [
-                                    SNew(SColorBlock)
-                                    .Color(FLinearColor::Blue)
-                                    .Size(FVector2D(16, 16))
-                                ]
-                            ]
-                            + SUniformGridPanel::Slot(3, 0)
-                            [
-                                SNew(SButton)
-                                .ButtonStyle(FAppStyle::Get(), "SimpleButton")
-                                .OnClicked_Lambda([this]() -> FReply {
-                                    PendingTagColor = FLinearColor::Yellow;
-                                    bColorPickerOpen = false;
-                                    return FReply::Handled();
-                                })
-                                [
-                                    SNew(SColorBlock)
-                                    .Color(FLinearColor::Yellow)
-                                    .Size(FVector2D(16, 16))
-                                ]
-                            ]
+                            + SUniformGridPanel::Slot(0, 0) [ CreateColourSwatch(FLinearColor::Red) ]
+                            + SUniformGridPanel::Slot(1, 0) [ CreateColourSwatch(FLinearColor::Green) ]
+                            + SUniformGridPanel::Slot(2, 0) [ CreateColourSwatch(FLinearColor::Blue) ]
+                            + SUniformGridPanel::Slot(3, 0) [ CreateColourSwatch(FLinearColor::Yellow) ]
                             
                             // Row 2
-                            + SUniformGridPanel::Slot(0, 1)
-                            [
-                                SNew(SButton)
-                                .ButtonStyle(FAppStyle::Get(), "SimpleButton")
-                                .OnClicked_Lambda([this]() -> FReply {
-                                    PendingTagColor = FLinearColor(1.0f, 0.5f, 0.0f); // Orange
-                                    bColorPickerOpen = false;
-                                    return FReply::Handled();
-                                })
-                                [
-                                    SNew(SColorBlock)
-                                    .Color(FLinearColor(1.0f, 0.5f, 0.0f))
-                                    .Size(FVector2D(16, 16))
-                                ]
-                            ]
-                            + SUniformGridPanel::Slot(1, 1)
-                            [
-                                SNew(SButton)
-                                .ButtonStyle(FAppStyle::Get(), "SimpleButton")
-                                .OnClicked_Lambda([this]() -> FReply {
-                                    PendingTagColor = FLinearColor(0.5f, 0.0f, 0.5f); // Purple
-                                    bColorPickerOpen = false;
-                                    return FReply::Handled();
-                                })
-                                [
-                                    SNew(SColorBlock)
-                                    .Color(FLinearColor(0.5f, 0.0f, 0.5f))
-                                    .Size(FVector2D(16, 16))
-                                ]
-                            ]
-                            + SUniformGridPanel::Slot(2, 1)
-                            [
-                                SNew(SButton)
-                                .ButtonStyle(FAppStyle::Get(), "SimpleButton")
-                                .OnClicked_Lambda([this]() -> FReply {
-                                    PendingTagColor = FLinearColor(0.0f, 0.5f, 0.5f); // Cyan
-                                    bColorPickerOpen = false;
-                                    return FReply::Handled();
-                                })
-                                [
-                                    SNew(SColorBlock)
-                                    .Color(FLinearColor(0.0f, 0.5f, 0.5f))
-                                    .Size(FVector2D(16, 16))
-                                ]
-                            ]
-                            + SUniformGridPanel::Slot(3, 1)
-                            [
-                                SNew(SButton)
-                                .ButtonStyle(FAppStyle::Get(), "SimpleButton")
-                                .OnClicked_Lambda([this]() -> FReply {
-                                    PendingTagColor = FLinearColor(0.5f, 0.5f, 0.5f); // Gray
-                                    bColorPickerOpen = false;
-                                    return FReply::Handled();
-                                })
-                                [
-                                    SNew(SColorBlock)
-                                    .Color(FLinearColor(0.5f, 0.5f, 0.5f))
-                                    .Size(FVector2D(16, 16))
-                                ]
-                            ]
-                        ]
+                            + SUniformGridPanel::Slot(0, 1) [ CreateColourSwatch(FLinearColor(1.0f, 0.5f, 0.0f)) ]
+                            + SUniformGridPanel::Slot(1, 1) [ CreateColourSwatch(FLinearColor(0.5f, 0.0f, 0.5f)) ]
+                            + SUniformGridPanel::Slot(2, 1) [ CreateColourSwatch(FLinearColor(0.0f, 0.5f, 0.5f)) ]
+                            + SUniformGridPanel::Slot(3, 1) [ CreateColourSwatch(FLinearColor(0.5f, 0.5f, 0.5f)) ]                           ]
                     ]
-                ]
-
-                // Close button at bottom
-                + SVerticalBox::Slot().AutoHeight().Padding(0, 8, 0, 0)
-                [
-                    SNew(SButton)
-                    .Text(FText::FromString(TEXT("Close")))
-                    .HAlign(HAlign_Center)
-                    .OnClicked_Lambda([this]() -> FReply {
-                        if (TagPickerAnchor.IsValid())
-                        {
-                            TagPickerAnchor->SetIsOpen(false);
-                        }
-                        return FReply::Handled();
-                    })
                 ]
             ]
         ];
@@ -474,7 +325,7 @@ TSharedRef<ITableRow> SDevNoteTagPicker::GenerateTagRow(TSharedPtr<FDevNoteTag> 
         [
             SNew(SHorizontalBox)
             
-            // Main button for tag selection
+            // Main button
             + SHorizontalBox::Slot()
             .FillWidth(1.0f)
             [
@@ -487,7 +338,7 @@ TSharedRef<ITableRow> SDevNoteTagPicker::GenerateTagRow(TSharedPtr<FDevNoteTag> 
                 [
                     SNew(SHorizontalBox)
                     
-                    // Color swatch
+                    // Color swatch display
                     + SHorizontalBox::Slot()
                     .AutoWidth()
                     .VAlign(VAlign_Center)
@@ -500,7 +351,7 @@ TSharedRef<ITableRow> SDevNoteTagPicker::GenerateTagRow(TSharedPtr<FDevNoteTag> 
                         .CornerRadius(FVector4(2, 2, 2, 2))
                     ]
                     
-                    // Tag name
+                    // Tag name 
                     + SHorizontalBox::Slot()
                     .FillWidth(1.0f)
                     .VAlign(VAlign_Center)
@@ -512,7 +363,7 @@ TSharedRef<ITableRow> SDevNoteTagPicker::GenerateTagRow(TSharedPtr<FDevNoteTag> 
                 ]
             ]
             
-            // Delete button (X)
+            // Delete tag button 
             + SHorizontalBox::Slot()
             .AutoWidth()
             .VAlign(VAlign_Center)
@@ -581,6 +432,22 @@ EVisibility SDevNoteTagPicker::GetColorPickerVisibility() const
     return bColorPickerOpen ? EVisibility::Visible : EVisibility::Collapsed;
 }
 
+TSharedRef<SWidget> SDevNoteTagPicker::CreateColourSwatch(const FLinearColor& Color)
+{
+    return SNew(SButton)
+    .ButtonStyle(FAppStyle::Get(), "SimpleButton")
+    .OnClicked_Lambda([this, Color]() -> FReply {
+        PendingTagColor = Color;
+        bColorPickerOpen = false;
+        return FReply::Handled();
+    })
+    [
+        SNew(SColorBlock)
+        .Color(Color)
+        .Size(FVector2D(16, 16))
+    ];
+}
+
 FText SDevNoteTagPicker::GetNewTagNameText() const 
 { 
     return FText::FromString(NewTagName); 
@@ -645,24 +512,8 @@ FReply SDevNoteTagPicker::OnAddNewTagClicked()
 
 FReply SDevNoteTagPicker::OnTagRowMouseButtonUp(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent, TSharedPtr<FDevNoteTag> ClickedTag)
 {
-    if (MouseEvent.GetEffectingButton() == EKeys::RightMouseButton)
+    if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
     {
-        // Create and show context menu for right-click
-        TSharedRef<SWidget> MenuWidget = CreateTagContextMenu(ClickedTag);
-        
-        FSlateApplication::Get().PushMenu(
-            AsShared(),
-            FWidgetPath(),
-            MenuWidget,
-            MouseEvent.GetScreenSpacePosition(),
-            FPopupTransitionEffect(FPopupTransitionEffect::ContextMenu)
-        );
-        
-        return FReply::Handled();
-    }
-    else if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
-    {
-        // Handle normal left-click (existing functionality)
         OnTagClicked(ClickedTag);
         return FReply::Handled();
     }
@@ -670,19 +521,6 @@ FReply SDevNoteTagPicker::OnTagRowMouseButtonUp(const FGeometry& MyGeometry, con
     return FReply::Unhandled();
 }
 
-TSharedRef<SWidget> SDevNoteTagPicker::CreateTagContextMenu(TSharedPtr<FDevNoteTag> ClickedTag)
-{
-    FMenuBuilder MenuBuilder(true, nullptr);
-    
-    MenuBuilder.AddMenuEntry(
-        FText::FromString(TEXT("Delete Tag")),
-        FText::FromString(FString::Printf(TEXT("Delete the tag '%s' from the database"), *ClickedTag->Name)),
-        FSlateIcon(),
-        FUIAction(FExecuteAction::CreateSP(this, &SDevNoteTagPicker::OnDeleteTagClicked, ClickedTag))
-    );
-
-    return MenuBuilder.MakeWidget();
-}
 
 void SDevNoteTagPicker::OnDeleteTagClicked(TSharedPtr<FDevNoteTag> TagToDelete)
 {

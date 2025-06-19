@@ -13,7 +13,7 @@
 #include "LevelEditorSubsystem.h"
 #include "LevelEditorViewport.h"
 #include "Selection.h"
-#include "DevNotes/DevNotesDeveloperSettings.h"
+#include "DevNotesDeveloperSettings.h"
 #include "Interfaces/IHttpRequest.h"
 #include "Interfaces/IHttpResponse.h"
 
@@ -31,7 +31,7 @@ FString GetCurrentLevelPath()
 	UWorld* EditorWorld = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (EditorWorld)
 	{
-		// Get the current persistent level package name (full path)
+		// Get the current level package name
 		return EditorWorld->GetCurrentLevel()->GetOutermost()->GetName();
 	}
 #endif
@@ -45,7 +45,7 @@ FVector GetEditorViewportCameraLocation()
 	// Get Level Editor viewport client
 	for (FEditorViewportClient* ViewportClient : GEditor->GetAllViewportClients())
 	{
-		// Filter for perspective viewport (not orthographic) and Level Editor type
+		// Filter for perspective viewport and Level Editor type
 		if (ViewportClient && ViewportClient->IsPerspective() && ViewportClient->IsVisible())
 		{
 			return ViewportClient->GetViewLocation();
@@ -56,12 +56,10 @@ FVector GetEditorViewportCameraLocation()
 }
 
 
-void UDevNoteSubsystem::Tick(float DeltaTime)
+void UDevNoteSubsystem::OnPollNotesTimerTimeout()
 {
-}
-
-void UDevNoteSubsystem::OnPollNotesTimer()
-{
+	// Only run if we are logged in
+	// TODO: Stop the timer if logged out, or try to establish a connection
 	if (!IsLoggedIn()) return;
 		
 	if (!bIsEditorEditing)
@@ -84,11 +82,10 @@ bool UDevNoteSubsystem::TryAutoSignIn()
 		return false;
 	}
 
-	// Set the token optimistically - we'll clear it only if server explicitly rejects it
+	// Set the token optimistically. If the server rejects it, it will be cleared upon repsonse
 	SessionToken = SavedToken;
 	UE_LOG(LogDevNotes, Log, TEXT("Loaded session token from file, validating with server..."));
 
-	// Create HTTP request to validate token
 	TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
 	Request->SetURL(GetServerAddress() + TEXT("/validatetoken"));
 	Request->SetVerb(TEXT("POST"));
@@ -103,7 +100,6 @@ bool UDevNoteSubsystem::TryAutoSignIn()
 	
 	Request->SetContentAsString(OutputString);
 
-	// Response handler
 	Request->OnProcessRequestComplete().BindLambda(
 		[this, SavedToken](FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse, bool bWasSuccessful)
 		{
@@ -112,7 +108,7 @@ bool UDevNoteSubsystem::TryAutoSignIn()
 				const int32 ResponseCode = HttpResponse->GetResponseCode();
 				UE_LOG(LogDevNotes, Log, TEXT("Token validation response: %d"), ResponseCode);
 				
-				if (ResponseCode == 200)
+				if (ResponseCode == EHttpResponseCodes::Ok)
 				{
 					// Token is valid - we're already set up, just broadcast the event
 					UE_LOG(LogDevNotes, Log, TEXT("Session token validated successfully"));
@@ -130,7 +126,7 @@ bool UDevNoteSubsystem::TryAutoSignIn()
 					}
 					OnSignedIn.Broadcast(SavedToken);
 				}
-				else if (ResponseCode == 401 || ResponseCode == 403)
+				else if (ResponseCode == EHttpResponseCodes::Denied || ResponseCode == EHttpResponseCodes::Forbidden)
 				{
 					// Token is explicitly rejected by server - clear it
 					UE_LOG(LogDevNotes, Warning, TEXT("Session token rejected by server (code: %d) - clearing"), ResponseCode);
@@ -146,7 +142,7 @@ bool UDevNoteSubsystem::TryAutoSignIn()
 			else
 			{
 				// Network error or no response - keep the token, don't sign in yet
-				// This prevents losing tokens when the server is temporarily unavailable
+				// Covers the case when the server is temporarily unavailable, for instance due to connection issues
 				UE_LOG(LogDevNotes, Warning, TEXT("Failed to validate token due to network error - keeping token for retry"));
 			}
 		});
@@ -181,18 +177,17 @@ void UDevNoteSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	// Try to restore session from saved token
 	TryAutoSignIn();
 	
-	// Set up signed-in event handler
 	OnSignedIn.AddWeakLambda(this, [this](FString Token)
 	{
 		UE_LOG(LogDevNotes, Log, TEXT("Signed in successfully, starting data sync..."));
 		RequestTagsFromServer();
 		RequestNotesFromServer();
-
+		
 		// Start polling timer
 		GEditor->GetTimerManager()->SetTimer(
 			RefreshNotesTimerHandle,
 			this,
-			&UDevNoteSubsystem::OnPollNotesTimer,
+			&UDevNoteSubsystem::OnPollNotesTimerTimeout,
 			30.0f,
 			true);
 	});
@@ -228,7 +223,7 @@ void UDevNoteSubsystem::PostNote(const FDevNote& Note)
 	{
 		HandleTokenInvalidation(Response);
 
-		if (bSuccess && Response->GetResponseCode() == 201)
+		if (bSuccess && Response->GetResponseCode() == EHttpResponseCodes::Created)
 		{
 			UE_LOG(LogDevNotes, Log, TEXT("Note posted successfully."));
 			RequestNotesFromServer();
@@ -264,7 +259,7 @@ void UDevNoteSubsystem::UpdateNote(const FDevNote& Note)
 	{
 		HandleTokenInvalidation(Response);
 
-		if (bSuccess && Response->GetResponseCode() == static_cast<int>(EHttpServerResponseCodes::Ok))
+		if (bSuccess && Response->GetResponseCode() == EHttpResponseCodes::Ok)
 		{
 			UE_LOG(LogDevNotes, Log, TEXT("Note updated successfully."));
 			RequestNotesFromServer();
@@ -297,7 +292,7 @@ void UDevNoteSubsystem::DeleteNote(const FGuid& NoteId)
 	{
 		HandleTokenInvalidation(Response);
 
-		if (bSuccess && Response->GetResponseCode() == 201)
+		if (bSuccess && Response->GetResponseCode() == EHttpResponseCodes::NoContent)
 		{
 			UE_LOG(LogDevNotes, Log, TEXT("Note deleted successfully."));
 			RequestNotesFromServer();
@@ -324,6 +319,7 @@ void UDevNoteSubsystem::PromptAndTeleportToNote(const FDevNote& note)
 	bool success = true;
 	if (TargetLevelPath != GetCurrentLevelPath())
 	{
+		// We don't fuck with /Temp/ levels. Save them first.
 		bool validLevelPath = !TargetLevelPath.IsEmpty() && !TargetLevelPath.StartsWith("/Temp/");
 		if (!validLevelPath)
 		{
@@ -331,7 +327,7 @@ void UDevNoteSubsystem::PromptAndTeleportToNote(const FDevNote& note)
 		}
 		else
 		{
-			
+			// Open confirmation dialogue
 			EAppReturnType::Type Choice = FMessageDialog::Open(
 			EAppMsgType::YesNoCancel,
 			FText::FromString(TEXT("Teleporting to another level: " + TargetLevelPath + "\nSave current level before continuing?"))
@@ -364,7 +360,8 @@ void UDevNoteSubsystem::PromptAndTeleportToNote(const FDevNote& note)
 		FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(TEXT("Failed to open level: ") + TargetLevelPath));
 		return;
 	}
-	
+
+	// Teleport editor camera to note's location
 	for (FLevelEditorViewportClient* ViewportClient : GEditor->GetLevelViewportClients())
 	{
 		if (ViewportClient && ViewportClient->IsPerspective())
@@ -381,6 +378,8 @@ TSet<FString> UDevNoteSubsystem::GetLoadedLevelPaths()
 	if (!World) return {};
 
 	TSet<FString> LoadedLevelPaths;
+
+	// Retrieve all sublevels - untested
 	for (ULevel* Level : World->GetLevels())
 	{
 		if (!Level || !Level->GetOutermost()) continue;
@@ -399,7 +398,6 @@ bool UDevNoteSubsystem::ParseNoteFromJsonObject(const TSharedPtr<FJsonObject>& J
 		return false;
 	}
 
-	// Extract required fields safely
 	FString idString;
 	FString createdByIDString;
 
@@ -414,7 +412,6 @@ bool UDevNoteSubsystem::ParseNoteFromJsonObject(const TSharedPtr<FJsonObject>& J
 	OutNote.Id = FGuid(idString);
 	OutNote.CreatedById = FGuid(createdByIDString);
 	
-	// Optional: Extract position
 	double X = 0.0, Y = 0.0, Z = 0.0;
 	JsonObj->TryGetNumberField(TEXT("worldX"), X);
 	JsonObj->TryGetNumberField(TEXT("worldY"), Y);
@@ -447,7 +444,6 @@ bool UDevNoteSubsystem::ParseNoteFromJsonObject(const TSharedPtr<FJsonObject>& J
 			}
 		}
 	}
-
 
 	return true;
 }
@@ -502,7 +498,6 @@ bool UDevNoteSubsystem::ParseTagFromJsonObject(const TSharedPtr<FJsonObject>& Js
 		return false;
 	}
 
-	// Extract required fields safely
 	FString idString;
 	FString nameString;
 	int colour = 0;
@@ -555,7 +550,8 @@ void UDevNoteSubsystem::HandleTagsResponse(TSharedPtr<IHttpRequest> HttpRequest,
 	CachedTags.Empty();
 	HandleTokenInvalidation(HttpResponse);
 
-	if (bWasSuccessful && HttpResponse->GetResponseCode() == 200)
+	// Parse tags
+	if (bWasSuccessful && HttpResponse->GetResponseCode() == EHttpResponseCodes::Ok)
 	{
 		FString ResponseString = HttpResponse->GetContentAsString();
 		TArray<TSharedPtr<FJsonValue>> JsonArray;
@@ -572,8 +568,8 @@ void UDevNoteSubsystem::HandleTagsResponse(TSharedPtr<IHttpRequest> HttpRequest,
 			}
 		}
 	}
+	
 	OnTagsUpdated.Broadcast();
-
 }
 
 void UDevNoteSubsystem::RequestTagsFromServer()
@@ -587,7 +583,6 @@ void UDevNoteSubsystem::RequestTagsFromServer()
 	Request->SetHeader("Content-Type", "application/json");
 	Request->SetHeader(TEXT("X-Session-Token"), *SessionToken);
 	Request->ProcessRequest();
-
 }
 
 UDevNoteSubsystem* UDevNoteSubsystem::Get()
@@ -599,7 +594,7 @@ UDevNoteSubsystem* UDevNoteSubsystem::Get()
 	return nullptr;
 }
 
-void UDevNoteSubsystem::ParseNotesFromJson(const FString& JsonString)
+void UDevNoteSubsystem::ParseAndCacheNotesFromJson(const FString& JsonString)
 {
 	TArray<TSharedPtr<FJsonValue>> NotesArray;
 	TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonString);
@@ -638,9 +633,10 @@ void UDevNoteSubsystem::HandleNotesResponse(FHttpRequestPtr Request, FHttpRespon
 	TArray<TSharedPtr<FJsonValue>> JsonArray;
 	const FString ResponseString = Response->GetContentAsString();
 	
-	ParseNotesFromJson(ResponseString);
+	ParseAndCacheNotesFromJson(ResponseString);
 	OnNotesUpdated.Broadcast();
-	
+
+	// Delete all waypoints and recreate them
 	RefreshWaypointActors();
 }
 
@@ -650,10 +646,10 @@ FString UDevNoteSubsystem::GetServerAddress() const
 	return Settings && !Settings->ServerAddress.IsEmpty() ? Settings->ServerAddress : TEXT("http://localhost:5281");
 }
 
-// Authentication and Token Management Methods
 
 FString UDevNoteSubsystem::GetSessionTokenFilePath() const
 {
+	// Use the /Saved directory
 	return FPaths::ProjectSavedDir() / SessionTokenFileName;
 }
 
@@ -699,7 +695,6 @@ bool UDevNoteSubsystem::IsLoggedIn() const
 	return !SessionToken.IsEmpty();
 }
 
-// Also update the token validation to be more robust
 void UDevNoteSubsystem::HandleTokenInvalidation(TSharedPtr<IHttpResponse> HttpResponse)
 {
 	if (HttpResponse.IsValid())
@@ -707,12 +702,12 @@ void UDevNoteSubsystem::HandleTokenInvalidation(TSharedPtr<IHttpResponse> HttpRe
 		const int32 ResponseCode = HttpResponse->GetResponseCode();
 		
 		// Only treat specific auth-related codes as token invalidation
-		if (ResponseCode == 401 || ResponseCode == 403)
+		// Don't invalidate token for other error codes
+		if (ResponseCode == EHttpResponseCodes::Denied || ResponseCode == EHttpResponseCodes::Forbidden)
 		{
 			UE_LOG(LogDevNotes, Warning, TEXT("Session token invalidated by server (code: %d). Signing out."), ResponseCode);
 			SignOutInternal();
 		}
-		// Don't invalidate token for other error codes (500, network errors, etc.)
 	}
 }
 
@@ -746,7 +741,6 @@ void UDevNoteSubsystem::SignOutInternal()
 void UDevNoteSubsystem::SignIn(const FString& UserName, const FString& Password,
                                TFunction<void(bool bSuccess, const FString& Error)> Completion)
 {
-		// Prepare JSON payload
 	TSharedRef<FJsonObject> RequestObj = MakeShared<FJsonObject>();
 	RequestObj->SetStringField(TEXT("UserName"), UserName);
 	RequestObj->SetStringField(TEXT("Password"), Password);
@@ -755,14 +749,12 @@ void UDevNoteSubsystem::SignIn(const FString& UserName, const FString& Password,
 	TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Body);
 	FJsonSerializer::Serialize(RequestObj, Writer);
 
-	// Create HTTP request
 	TSharedRef<IHttpRequest, ESPMode::ThreadSafe> HttpRequest = FHttpModule::Get().CreateRequest();
 	HttpRequest->SetURL(GetServerAddress() + TEXT("/signin"));
 	HttpRequest->SetVerb(TEXT("POST"));
 	HttpRequest->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
 	HttpRequest->SetContentAsString(Body);
 
-	// Response handler
 	HttpRequest->OnProcessRequestComplete().BindLambda(
 		[this, Completion](FHttpRequestPtr Req, FHttpResponsePtr Response, bool bWasSuccessful)
 		{
@@ -875,13 +867,6 @@ void UDevNoteSubsystem::RetryTokenValidation()
 		Request->SetURL(GetServerAddress() + TEXT("/validatetoken"));
 		Request->SetVerb(TEXT("POST"));
 		Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
-
-		//TSharedPtr<FJsonObject> JsonObject = MakeShared<FJsonObject>();
-		//JsonObject->SetStringField(TEXT("token"), SessionToken);
-
-		//FString OutputString;
-		//TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);
-		//FJsonSerializer::Serialize(JsonObject.ToSharedRef(), Writer);
 		Request->SetContentAsString(SessionToken);
 		
 		Request->OnProcessRequestComplete().BindLambda(
@@ -892,9 +877,9 @@ void UDevNoteSubsystem::RetryTokenValidation()
 					const int32 ResponseCode = HttpResponse->GetResponseCode();
 					UE_LOG(LogDevNotes, Log, TEXT("Token validation response: %d"), ResponseCode);
 				
-					if (ResponseCode == 200)
+					if (ResponseCode == EHttpResponseCodes::Ok)
 					{
-						// Token is valid - extract user ID if available
+						// Token is valid, extract user id from response
 						TSharedPtr<FJsonObject> JsonObj;
 						const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(HttpResponse->GetContentAsString());
 
@@ -911,23 +896,19 @@ void UDevNoteSubsystem::RetryTokenValidation()
 						UE_LOG(LogDevNotes, Log, TEXT("Session token validated successfully"));
 						OnSignedIn.Broadcast(SessionToken);
 					}
-					else if (ResponseCode == 401 || ResponseCode == 403)
+					else if (ResponseCode == EHttpResponseCodes::Denied || ResponseCode == EHttpResponseCodes::Forbidden)
 					{
-						// Token is explicitly rejected by server - clear it
 						UE_LOG(LogDevNotes, Warning, TEXT("Session token rejected by server (code: %d) - clearing"), ResponseCode);
 						ClearSessionToken();
 						OnSignedOut.Broadcast();
 					}
 					else
 					{
-						// Other server error - keep token but don't sign in yet
 						UE_LOG(LogDevNotes, Warning, TEXT("Server error during token validation (code: %d) - keeping token for retry"), ResponseCode);
 					}
 				}
 				else
 				{
-					// Network error or no response - keep the token, don't sign in yet
-					// This prevents losing tokens when the server is temporarily unavailable
 					UE_LOG(LogDevNotes, Warning, TEXT("Failed to validate token due to network error - keeping token for retry"));
 				}
 
@@ -949,11 +930,12 @@ ADevNoteActor* UDevNoteSubsystem::SpawnWaypointForNote(TSharedPtr<FDevNote> Note
 	auto spawnClass = settings->DevNoteActorRepresentation.LoadSynchronous();
 	
 	FActorSpawnParameters SpawnParams;
+	// Name waypoint after the title of the note
 	SpawnParams.Name = MakeUniqueObjectName(World, spawnClass, FName(*FString::Printf(TEXT("DevNote_%s"), *Note->Id.ToString())));
 	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	
 	// Don't save or dirty the world state
 	SpawnParams.ObjectFlags |= RF_Transient;
-	
 
 	ADevNoteActor* Waypoint = Cast<ADevNoteActor>(World->SpawnActor(spawnClass, &Note->WorldPosition, &FRotator::ZeroRotator, SpawnParams));
 	if (Waypoint)
@@ -962,7 +944,7 @@ ADevNoteActor* UDevNoteSubsystem::SpawnWaypointForNote(TSharedPtr<FDevNote> Note
 		Waypoint->SetActorLabel(TEXT("DevNote ") + Note->Title, false);
 		Waypoint->SetIsTemporarilyHiddenInEditor(false);
 
-
+		// Prevents above modifications from triggering edit events on the actor, prompting note updates
 		Waypoint->bReadyForSync = true;
 	}
 
@@ -976,6 +958,7 @@ void UDevNoteSubsystem::ClearAllNoteWaypoints()
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World) return;
 
+	// Could cache the actors instead
 	for (TActorIterator<ADevNoteActor> It(World); It; ++It)
 	{
 		GEditor->SelectActor(*It, false, true);
@@ -985,9 +968,11 @@ void UDevNoteSubsystem::ClearAllNoteWaypoints()
 
 void UDevNoteSubsystem::RefreshWaypointActors()
 {
+	// Cache ID's
 	StoreSelectedNoteIDs();
 	ClearAllNoteWaypoints();
 
+	// Cache viewport selection
 	TArray<AActor*> selection;
 	
 	auto CurrentLevels = GetLoadedLevelPaths();
@@ -1004,13 +989,14 @@ void UDevNoteSubsystem::RefreshWaypointActors()
 		}
 	}
 
+	// Restore selection
 	for (auto actor : selection)
 	{
 		GEditor->SelectActor(actor, true, true);
 	}
 }
 
-TArray<TSharedPtr<FDevNote>> UDevNoteSubsystem::GetSelectedNotes()
+TArray<TSharedPtr<FDevNote>> UDevNoteSubsystem::GetSelectedNoteWaypoints()
 {
 	TArray<TSharedPtr<FDevNote>> SelectedNotes;
 	USelection* selection = GEditor->GetSelectedActors();
@@ -1030,7 +1016,7 @@ TArray<TSharedPtr<FDevNote>> UDevNoteSubsystem::GetSelectedNotes()
 void UDevNoteSubsystem::StoreSelectedNoteIDs()
 {
 	SelectedNoteIDsBeforeRefresh.Empty();
-	TArray<TSharedPtr<FDevNote>> SelectedNotes = GetSelectedNotes();
+	TArray<TSharedPtr<FDevNote>> SelectedNotes = GetSelectedNoteWaypoints();
 	for (TSharedPtr<FDevNote> Note : SelectedNotes)
 	{
 		if (Note)
@@ -1059,12 +1045,11 @@ void UDevNoteSubsystem::PostTag(FDevNoteTag NoteTag)
 	{
 		HandleTokenInvalidation(Response);
 
-		if (bSuccess && Response->GetResponseCode() == 201)
+		if (bSuccess && Response->GetResponseCode() == EHttpResponseCodes::Created)
 		{
 			UE_LOG(LogDevNotes, Log, TEXT("Tag created successfully."));
 		}
-	}
-	);
+	});
 
 	Request->ProcessRequest();
 }
@@ -1081,7 +1066,7 @@ void UDevNoteSubsystem::DeleteTag(const FGuid& TagId)
 	{
 		HandleTokenInvalidation(Response);
 
-		if (bSuccess && (Response->GetResponseCode() == 200 || Response->GetResponseCode() == 204))
+		if (bSuccess && (Response->GetResponseCode() == EHttpResponseCodes::Ok || Response->GetResponseCode() == EHttpResponseCodes::NoContent))
 		{
 			UE_LOG(LogDevNotes, Log, TEXT("Tag deleted successfully."));
 			// Refresh tags from server after successful deletion
@@ -1122,6 +1107,22 @@ bool UDevNoteSubsystem::ParseUserFromJsonObject(const TSharedPtr<FJsonObject>& J
 	return true;
 }
 
+const FDevNoteUser& UDevNoteSubsystem::GetUserById(const FGuid& UserId)
+{
+	auto foundUser =  CachedUsers.FindByPredicate([UserId](const FDevNoteUser& user)
+	{
+		return user.Id == UserId;
+	});
+
+	if (!foundUser)
+	{
+		static FDevNoteUser EmptyUser;
+		return EmptyUser;
+	}
+
+	return *foundUser;
+}
+
 
 void UDevNoteSubsystem::HandleUsersResponse(TSharedPtr<IHttpRequest> HttpRequest,
                                             TSharedPtr<IHttpResponse> HttpResponse, bool bWasSuccessful)
@@ -1129,7 +1130,7 @@ void UDevNoteSubsystem::HandleUsersResponse(TSharedPtr<IHttpRequest> HttpRequest
 	CachedUsers.Empty();
 	HandleTokenInvalidation(HttpResponse);
 
-	if (bWasSuccessful && HttpResponse->GetResponseCode() == 200)
+	if (bWasSuccessful && HttpResponse->GetResponseCode() == EHttpResponseCodes::Ok)
 	{
 		FString ResponseString = HttpResponse->GetContentAsString();
 		TArray<TSharedPtr<FJsonValue>> JsonArray;

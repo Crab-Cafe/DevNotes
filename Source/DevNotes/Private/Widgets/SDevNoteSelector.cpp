@@ -7,7 +7,6 @@
 #include "Widgets/Views/SListView.h"
 #include "Widgets/Text/STextBlock.h"
 
-// Add this helper for parsing tokens with quotes
 static void ParseSearchStringWithQuotes(const FString& InStr, TArray<FString>& OutTokens)
 {
     int32 Len = InStr.Len();
@@ -43,7 +42,6 @@ void SDevNoteSelector::OnSearchTextChanged(const FText& Text)
 
 void SDevNoteSelector::ParseAndApplyFilters()
 {
-    // Field -> Multiple allowed values (OR logic)
     TMap<FString, TArray<FString>> FieldFilters;
     TArray<FString> GenericTerms;
 
@@ -54,15 +52,17 @@ void SDevNoteSelector::ParseAndApplyFilters()
     
     for (const FString& Token : Tokens)
     {
+        // Split into key value
         FString Key, Value;
         if (Token.Split(TEXT("="), &Key, &Value))
         {
             Key = Key.ToLower().TrimStartAndEnd();
-            Value = Value.TrimQuotes().TrimStartAndEnd(); // Remove quotes from value if any
+            Value = Value.TrimQuotes().TrimStartAndEnd();
             FieldFilters.FindOrAdd(Key).Add(Value);
         }
         else
         {
+            // Generic (no key - wildcard)
             GenericTerms.Add(Token.TrimQuotes().TrimStartAndEnd());
         }
     }
@@ -71,6 +71,7 @@ void SDevNoteSelector::ParseAndApplyFilters()
     for (const auto& Note : Notes)
     {
         bool bPass = true;
+        
         // Name
         if (FieldFilters.Contains("name"))
         {
@@ -91,7 +92,9 @@ void SDevNoteSelector::ParseAndApplyFilters()
             bool bAny = false;
             for (const FString& Val : FieldFilters["user"])
             {
-                if (Note->CreatedById.ToString().Contains(Val, ESearchCase::IgnoreCase))
+                UDevNoteSubsystem* ss = UDevNoteSubsystem::Get();
+                auto user = ss->GetUserById(Note->CreatedById);
+                if (ss->GetUserById(Note->CreatedById).Name.Contains(Val, ESearchCase::IgnoreCase))
                 {
                     bAny = true; break;
                 }
@@ -141,15 +144,16 @@ void SDevNoteSelector::ParseAndApplyFilters()
 
         
 
-        // Generic Terms: OR logic
+        // Generic/wildcard terms
         if (bPass && GenericTerms.Num() > 0)
         {
             bool bAnyGeneric = false;
             for (const FString& Term : GenericTerms)
             {
-                // Check title and level path
+                // Title, level, user
                 if (Note->Title.Contains(Term, ESearchCase::IgnoreCase) ||
-                    Note->LevelPath.ToString().Contains(Term, ESearchCase::IgnoreCase))
+                    Note->LevelPath.ToString().Contains(Term, ESearchCase::IgnoreCase) ||
+                    UDevNoteSubsystem::Get()->GetUserById(Note->CreatedById).Name.Contains(Term, ESearchCase::IgnoreCase))
                 {
                     bAnyGeneric = true;
                     break;
@@ -196,6 +200,7 @@ void SDevNoteSelector::Construct(const FArguments& InArgs)
     ChildSlot
     [
         SNew(SVerticalBox)
+        // Tool buttons
         + SVerticalBox::Slot()
         .AutoHeight()
         [
@@ -215,6 +220,8 @@ void SDevNoteSelector::Construct(const FArguments& InArgs)
                 .OnClicked(this, &SDevNoteSelector::OnNewNoteClicked)
             ]
         ]
+        
+        //Search / filter bar
         + SVerticalBox::Slot()
         .AutoHeight()
         .HAlign(HAlign_Fill)
@@ -234,6 +241,8 @@ void SDevNoteSelector::Construct(const FArguments& InArgs)
             ))
             .OnTextChanged(this, &SDevNoteSelector::OnSearchTextChanged)
         ]
+
+        // Note editor
         + SVerticalBox::Slot()
         .FillHeight(1.0f)
         [

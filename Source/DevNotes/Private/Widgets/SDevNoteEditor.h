@@ -28,7 +28,6 @@ private:
 	TArray<TSharedPtr<FDevNoteTag>> TagsList;
 	TSharedPtr<SDevNoteTagPicker> TagPicker;
     
-	// Tag-related methods
 	void RefreshTagsList();
 	void OnTagSelectionChanged(const TArray<FGuid>& NewTagIds);
 	void OnNewTagCreated(const FDevNoteTag& NewTag);

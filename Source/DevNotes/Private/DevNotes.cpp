@@ -3,17 +3,11 @@
 #include "DevNotes.h"
 
 #include "DevNoteActor.h"
-#include "DevNotesStyle.h"
-#include "DevNotesCommands.h"
 #include "DevNoteSubsystem.h"
-#include "LevelEditor.h"
 #include "Misc/MessageDialog.h"
 #include "ToolMenus.h"
 #include "EditorCustomization/DevNoteActorCustomization.h"
 #include "Widgets/SDevNotesDropdownWidget.h"
-#include "DevNoteSubsystem.h"
-
-static const FName DevNotesTabName("DevNotes");
 
 #define LOCTEXT_NAMESPACE "FDevNotesModule"
 
@@ -30,17 +24,17 @@ void FDevNotesModule::OnMapOpened(const FString& String, bool bArg)
 
 void FDevNotesModule::StartupModule()
 {
-	FDevNotesStyle::Initialize();
-	FDevNotesStyle::ReloadTextures();
-
+	// Register toolbar menu when ready
 	UToolMenus::RegisterStartupCallback(FSimpleMulticastDelegate::FDelegate::CreateRaw(
 		this, &FDevNotesModule::RegisterMenus));
 
+	// Custom details panel for ADevNoteActor 
 	FPropertyEditorModule& PropertyModule = FModuleManager::LoadModuleChecked<FPropertyEditorModule>("PropertyEditor");
 	PropertyModule.RegisterCustomClassLayout(
 		ADevNoteActor::StaticClass()->GetFName(),
 		FOnGetDetailCustomizationInstance::CreateStatic(&FDevNoteActorCustomization::MakeInstance));
 
+	// Refresh notes whenever a new map is opened
 	FEditorDelegates::OnMapOpened.AddRaw(this, &FDevNotesModule::OnMapOpened);
 }
 
@@ -49,6 +43,7 @@ void FDevNotesModule::RegisterMenus()
 {
 	FToolMenuOwnerScoped OwnerScoped(this);
 
+	// Add a combo button dropdown to toolbar for custom DevNotes menu
 	UToolMenu* ToolbarMenu = UToolMenus::Get()->ExtendMenu("LevelEditor.LevelEditorToolBar.User");
 	FToolMenuSection& Section = ToolbarMenu->FindOrAddSection("DevNotes");
 	Section.AddEntry(FToolMenuEntry::InitWidget(
@@ -69,30 +64,35 @@ void FDevNotesModule::ShutdownModule()
 	UToolMenus::UnRegisterStartupCallback(this);
 	UToolMenus::UnregisterOwner(this);
 
-	FDevNotesStyle::Shutdown();
-	FDevNotesCommands::Unregister();
-
 	FEditorDelegates::OnMapOpened.RemoveAll(this);
 }
 
+
 TSharedRef<SWidget> FDevNotesModule::GenerateNotesDropdown()
 {
-	UDevNoteSubsystem* Subsystem = GEditor->GetEditorSubsystem<UDevNoteSubsystem>();
-	Subsystem->RequestNotesFromServer();
-	const auto& notes = Subsystem->GetNotes();
-	if (NotesWidget == nullptr)
+	if (UDevNoteSubsystem* Subsystem = GEditor->GetEditorSubsystem<UDevNoteSubsystem>())
 	{
-		NotesWidget = SNew(SDevNotesDropdownWidget);
-	}
+		// Refresh notes whenever opened
+		Subsystem->RequestNotesFromServer();
+		const auto& notes = Subsystem->GetNotes();
 
-	NotesWidget->SetNotesSource(notes);
+		// Cache and reuse a single notes widget
+		if (NotesWidget == nullptr)
+		{
+			NotesWidget = SNew(SDevNotesDropdownWidget);
+		}
+
+		NotesWidget->SetNotesSource(notes);
 	
-	return SNew(SBox)
-	.WidthOverride(600)
-	.HeightOverride(400)
-	[
-		NotesWidget.ToSharedRef()
-	];
+		return SNew(SBox)
+		.WidthOverride(600)
+		.HeightOverride(400)
+		[
+			NotesWidget.ToSharedRef()
+		];
+	}
+	
+	return SNullWidget::NullWidget;
 }
 
 #undef LOCTEXT_NAMESPACE

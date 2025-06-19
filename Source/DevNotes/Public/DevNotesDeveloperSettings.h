@@ -16,9 +16,11 @@ class DEVNOTES_API UDevNotesDeveloperSettings : public UDeveloperSettings
 	GENERATED_BODY()
 
 public:
+	// Address of the DevNotes backend server
 	UPROPERTY(Config, EditDefaultsOnly)
 	FString ServerAddress = "http://localhost/7124";
 
+	// Actor used to represent a note in the world
 	UPROPERTY(Config, EditDefaultsOnly)
 	TSoftClassPtr<ADevNoteActor> DevNoteActorRepresentation = ADevNoteActor::StaticClass();
 };

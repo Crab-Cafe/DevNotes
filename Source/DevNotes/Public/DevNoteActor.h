@@ -15,12 +15,18 @@ class DEVNOTES_API ADevNoteActor : public AActor
 
 public:
 	ADevNoteActor();
+
+	// This this the CDO or currently open in the blueprint editor?
 	bool IsCDO();
 
+	// Get a copy of the note represented by this actor. Exists because BP cannot use a TSharedPtr
 	UFUNCTION(BlueprintPure, BlueprintCallable)
 	const FDevNote GetNote() const;
 
+	// The note this actor represents
 	TSharedPtr<FDevNote> Note;
+
+	// Flag to prevent property updates before actor is fully constructed
 	bool bReadyForSync = false;
 protected:
 	virtual void PostEditChangeProperty(struct FPropertyChangedEvent& PropertyChangedEvent) override;

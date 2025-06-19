@@ -29,6 +29,7 @@ void SDevNotesDropdownWidget::RefreshNotes()
 
 void SDevNotesDropdownWidget::OnSignedIn(FString Token)
 {
+	// Enable editing
 	Editor->SetEnabled(true);
 	Selector->SetEnabled(true);
 	UpdateLoginStatusBox();
@@ -36,6 +37,7 @@ void SDevNotesDropdownWidget::OnSignedIn(FString Token)
 
 void SDevNotesDropdownWidget::OnSignedOut()
 {
+	// Disable editing
 	Editor->SetEnabled(false);
 	Selector->SetEnabled(false);
 	UpdateLoginStatusBox();
@@ -59,13 +61,13 @@ void SDevNotesDropdownWidget::Construct(const FArguments& InArgs)
 		UDevNoteSubsystem* Subsystem = GEditor->GetEditorSubsystem<UDevNoteSubsystem>();
 		if (Subsystem)
 		{
+			// Bind to authentication and note events in subsystem
 			Subsystem->OnNotesUpdated.AddSP(SharedThis(this), &SDevNotesDropdownWidget::OnNotesUpdated);
 			Subsystem->OnSignedIn.AddSP(SharedThis(this), &SDevNotesDropdownWidget::OnSignedIn);
 			Subsystem->OnSignedOut.AddSP(SharedThis(this), &SDevNotesDropdownWidget::OnSignedOut);
 		}
 	}
-
-
+	
 	bIsLoggedIn = false;
 	ErrorMsg = FString();
 
@@ -73,16 +75,22 @@ void SDevNotesDropdownWidget::Construct(const FArguments& InArgs)
 	.Padding(10)
 	[
 		SNew(SVerticalBox)
+
+		// Login Box
 		+ SVerticalBox::Slot()
 		.AutoHeight()
 		.Padding(0, 0, 0, 8)
 		[
 			SAssignNew(LoginStatusBox, SHorizontalBox)
 		]
+
+		// Splitter
 		+ SVerticalBox::Slot()
 		.FillHeight(1.0f)
 		[
 			SNew(SSplitter)
+
+			// Devnote Selector
 			+ SSplitter::Slot()
 			.Value(0.3f)
 			[
@@ -95,6 +103,8 @@ void SDevNotesDropdownWidget::Construct(const FArguments& InArgs)
 					.OnNewNote(this, &SDevNotesDropdownWidget::NewNote)
 				]
 			]
+			
+			// Devnote Editor
 			+ SSplitter::Slot()
 			.Value(0.7f)
 			[
@@ -136,6 +146,7 @@ void SDevNotesDropdownWidget::UpdateLoginStatusBox()
 
 	if (bIsLoggedIn)
 	{
+		// Status
 		LoginStatusBox->AddSlot()
 		.AutoWidth()
 		[
@@ -143,6 +154,7 @@ void SDevNotesDropdownWidget::UpdateLoginStatusBox()
 			.Text(FText::Format(LOCTEXT("LoggedInStatus", "Status: Logged in as {0}"), FText::FromString(UDevNoteSubsystem::Get()->GetCurrentUser().Name)))
 		];
 
+		// Logout Button
 		LoginStatusBox->AddSlot()
 		.AutoWidth()
 		.Padding(10,0)
@@ -154,6 +166,7 @@ void SDevNotesDropdownWidget::UpdateLoginStatusBox()
 	}
 	else
 	{
+		// Status
 		LoginStatusBox->AddSlot()
 		.AutoWidth()
 		.Padding(0,0,8,0)
@@ -162,6 +175,7 @@ void SDevNotesDropdownWidget::UpdateLoginStatusBox()
 			.Text(LOCTEXT("LoggedOutStatus", "Status: Not logged in"))
 		];
 
+		// Username Box
 		LoginStatusBox->AddSlot()
 		.FillWidth(1.0f)
 		[
@@ -169,11 +183,11 @@ void SDevNotesDropdownWidget::UpdateLoginStatusBox()
 			.MinDesiredWidth(80)
 			.HintText(LOCTEXT("UsernameHint", "Username"))
 			.OnTextCommitted(this, &SDevNotesDropdownWidget::OnUsernameCommitted)
-			// Keep the latest entered
 			// .Text_Raw(this, &SDevNotesDropdownWidget::GetCachedUsernameText)
 			// .OnTextChanged(this, &SDevNotesDropdownWidget::OnUsernameChanged)
 		];
 
+		// Password box
 		LoginStatusBox->AddSlot()
 		.FillWidth(1.0f)
 		[
@@ -186,6 +200,7 @@ void SDevNotesDropdownWidget::UpdateLoginStatusBox()
 			// .OnTextChanged(this, &SDevNotesDropdownWidget::OnPasswordChanged)
 		];
 
+		// Login button
 		LoginStatusBox->AddSlot()
 		.AutoWidth()
 		.Padding(5,0)
@@ -198,6 +213,7 @@ void SDevNotesDropdownWidget::UpdateLoginStatusBox()
 
 	if (!ErrorMsg.IsEmpty())
 	{
+		// Error Message
 		LoginStatusBox->AddSlot()
 		.AutoWidth()
 		.Padding(10,0)
@@ -218,8 +234,10 @@ void SDevNotesDropdownWidget::OnNoteSelected(TSharedPtr<FDevNote> InNote)
 
 void SDevNotesDropdownWidget::SetNotesSource(const TArray<TSharedPtr<FDevNote>>& InNotes)
 {
+	// Pass note source to selector
 	Selector->SetNotesSource(InNotes);
 
+	// Re-select previously selected note if it exists
 	if (SelectedNoteId.IsValid())
 	{
 		TSharedPtr<FDevNote> Found;
@@ -238,6 +256,7 @@ void SDevNotesDropdownWidget::SetNotesSource(const TArray<TSharedPtr<FDevNote>>&
 		SelectedNote.Reset();
 	}
 	
+	// Propagate note selection to sub-widgets
 	Editor->SetSelectedNote(SelectedNote);
 	Selector->SetSelectedNote(SelectedNote);
 }
@@ -253,8 +272,6 @@ void SDevNotesDropdownWidget::OnNotesUpdated()
 	}
 }
 
-// ---------- Login/logout support ----------
-
 FReply SDevNotesDropdownWidget::OnLoginClicked()
 {
 	ErrorMsg.Empty();
@@ -264,6 +281,8 @@ FReply SDevNotesDropdownWidget::OnLoginClicked()
 		UpdateLoginStatusBox();
 		return FReply::Handled();
 	}
+
+	// Issue sign in command via subsystem
 	if (GEditor)
 	{
 		if (UDevNoteSubsystem* Subsystem = GEditor->GetEditorSubsystem<UDevNoteSubsystem>())
@@ -294,6 +313,7 @@ void SDevNotesDropdownWidget::OnLoginResponse(bool bSuccess, const FString& Erro
 FReply SDevNotesDropdownWidget::OnLogoutClicked()
 {
 	ErrorMsg.Empty();
+	// Issue logout command via subsystem
 	if (GEditor)
 	{
 		if (UDevNoteSubsystem* Subsystem = GEditor->GetEditorSubsystem<UDevNoteSubsystem>())
@@ -316,12 +336,12 @@ void SDevNotesDropdownWidget::OnLogoutResponse(bool bSuccess)
 	UpdateLoginStatusBox();
 }
 
-void SDevNotesDropdownWidget::OnUsernameCommitted(const FText& Text, ETextCommit::Type /*CommitType*/)
+void SDevNotesDropdownWidget::OnUsernameCommitted(const FText& Text, ETextCommit::Type CommitType)
 {
 	CachedUsername = Text.ToString();
 }
 
-void SDevNotesDropdownWidget::OnPasswordCommitted(const FText& Text, ETextCommit::Type /*CommitType*/)
+void SDevNotesDropdownWidget::OnPasswordCommitted(const FText& Text, ETextCommit::Type CommitType)
 {
 	CachedPassword = Text.ToString();
 }

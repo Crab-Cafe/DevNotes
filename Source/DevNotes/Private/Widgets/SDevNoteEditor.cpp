@@ -65,13 +65,12 @@ void SDevNoteEditor::Construct(const FArguments& InArgs)
 
     UDevNoteSubsystem::Get()->OnTagsUpdated.AddSP(SharedThis(this), &SDevNoteEditor::RefreshTagsList);
     
-
     
     ChildSlot
     [
         SNew(SVerticalBox)
 
-        // Title (Editable)
+        // Title
         + SVerticalBox::Slot()
         .AutoHeight()
         .Padding(FMargin(0, 0, 0, 6))
@@ -120,7 +119,7 @@ void SDevNoteEditor::Construct(const FArguments& InArgs)
                  })
         ]
 
-        // Tag display area (replace the entire tag selector section with this)
+        // Tag display area
         + SVerticalBox::Slot()
         .AutoHeight()
         .Padding(FMargin(0, 0, 0, 12))
@@ -133,7 +132,7 @@ void SDevNoteEditor::Construct(const FArguments& InArgs)
                 .BorderImage(FAppStyle::GetBrush("ToolPanel.DarkGroupBorder"))
                 .Padding(FMargin(6, 4))
                 [
-                    // This widget will be refreshed when tags change
+                    // Widget refreshed when tags changed
                     SAssignNew(TagDisplayWidget, SBox)
                     [
                         CreateTagDisplay()
@@ -161,10 +160,13 @@ void SDevNoteEditor::Construct(const FArguments& InArgs)
                 FString CreatedAtStr = localTimeCreated.ToString(TEXT("%Y-%m-%d %H:%M:%S"));
                 FString LastEditedStr = localTimeLastEdited.ToString(TEXT("%Y-%m-%d %H:%M:%S"));
 
+                FString CreatedByStr = UDevNoteSubsystem::Get()->GetUserById(SelectedNote->CreatedById).Name;
+                
                 FString Details = FString::Printf(
-                    TEXT("Location: (%.1f, %.1f, %.1f)\nCreated At: %s\nLast Edited: %s"),
+                    TEXT("Location: (%.1f, %.1f, %.1f)\nCreated At: %s\nCreated By: %s\nLast Edited: %s"),
                     Loc.X, Loc.Y, Loc.Z,
                     *CreatedAtStr,
+                    *CreatedByStr,
                     *LastEditedStr);
 
                 return FText::FromString(Details);
@@ -457,25 +459,22 @@ void SDevNoteEditor::RefreshTagsList()
 
 TSharedRef<SWidget> SDevNoteEditor::CreateTagDisplay() const
 {
-    // Create a horizontal wrap box for tag swatches
+    // Tag container wrapbox
     TSharedRef<SWrapBox> TagWrapBox = SNew(SWrapBox)
         .UseAllottedSize(true)
         .InnerSlotPadding(FVector2D(2, 2));
 
-    // Add existing tags if we have any
     if (SelectedNote.IsValid() && !SelectedNote->Tags.IsEmpty())
     {
-        // Find the tags that match our selected IDs and create swatches
         for (const FGuid& TagId : SelectedNote->Tags)
         {
-            // Find the tag in our tags list
             const TSharedPtr<FDevNoteTag>* FoundTag = TagsList.FindByPredicate([&TagId](const TSharedPtr<FDevNoteTag>& NoteTag) {
                 return NoteTag.IsValid() && NoteTag->Id == TagId;
             });
 
             if (FoundTag && FoundTag->IsValid())
             {
-                // Convert stored color to display color
+                // Convert stored int32 color to display color
                 FColor TagColor;
                 TagColor.DWColor() = (*FoundTag)->Colour;
                 FLinearColor DisplayColor = FLinearColor::FromSRGBColor(TagColor);
@@ -539,7 +538,7 @@ TSharedRef<SWidget> SDevNoteEditor::CreateTagDisplay() const
         }
     }
 
-    // Always add the + button as the last slot
+    // + Button as last slot
     TagWrapBox->AddSlot()
     [
         SNew(SBox)
